@@ -75,3 +75,7 @@ Data is stored in `~/.config/ytrss/`:
 
 ## 📄 License
 MIT
+
+---
+
+**⚠️ Disclaimer:** This project is created for educational purposes only. It is not intended to be used for downloading copyrighted material without permission or for violating YouTube's Terms of Service. Please use this tool responsibly.
