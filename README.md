@@ -1,77 +1,69 @@
 # YTRSS 2.0 📺
 
-A modern, fast, and beautiful TUI (Terminal User Interface) for browsing and organizing YouTube subscriptions via RSS.  
-**No algorithms. No distractions. Just your feeds.**
+**The minimalist, distraction-free YouTube RSS client for your terminal.**
 
-Designed to work seamlessly with [QuickTube](https://github.com/coffe/QuickTube) for distraction-free viewing.
+YTRSS 2.0 allows you to browse, organize, and watch your YouTube subscriptions without ever opening the YouTube homepage. No algorithms, no ads, no distractions—just the content you subscribed to.
 
-## ✨ New in v2.0 (UX Overhaul)
+> Hosted in the `quicktube2` repository.
 
-*   **📊 Live Dashboard:** See new videos, Watch Later count, and Shorts status at a glance.
-*   **📂 Organized Layout:** Clear separation between your content (Channels/Videos) and tools.
-*   **⚡ Shorts Control:** Toggle YouTube Shorts on/off instantly with `[ S ]`.
-*   **📝 Smart Grid:** Video lists are perfectly aligned with icons for status (New `*`, Seen `✔`, Shorts `S`).
-*   **🔍 Fuzzy Search:** Type anywhere to instantly filter channels or videos.
+## ✨ Key Features
 
-## 🚀 Features
+*   **📊 Dashboard:** Instant overview of new videos, "Watch Later" queue, and Shorts status.
+*   **⚡ Blazing Fast:** Asynchronous fetching of 50+ feeds in seconds.
+*   **🧘 Distraction Free:** Filter out Shorts with a single keystroke `[ S ]`.
+*   **📂 Organized:** Clean TUI with visual separation between content and tools.
+*   **💾 Local & Private:** No Google Account needed. Data stored locally.
+*   **🛠️ standalone:** Builds into a single binary with zero runtime dependencies.
 
-*   **Privacy Focused:** Uses RSS feeds. No Google Account login required.
-*   **Watch Later:** Built-in local playlist management.
-*   **Async Performance:** Fetches 50+ feeds concurrently in seconds.
-*   **Metadata Caching:** Saves video durations locally for instant loading.
-*   **Keyboard Driven:** Optimized for speed and efficiency.
+## 📥 Installation
+
+### Option 1: Build from Source (Recommended)
+Since this repository is optimized for building, this is the best way to run it.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/coffe/quicktube2.git
+    cd quicktube2
+    ```
+
+2.  **Build the binary:**
+    ```bash
+    ./build.sh
+    ```
+
+3.  **Install:**
+    The executable will be in `dist/ytrss`. Move it to your path:
+    ```bash
+    sudo cp dist/ytrss /usr/local/bin/ytrss
+    ```
+
+### Option 2: Run via Python
+If you prefer running the script directly:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python ytrss.py
+```
 
 ## 🎮 Controls
 
-### Main Dashboard
-| Key | Action |
-| :--- | :--- |
-| **`R`** | Refresh feeds |
-| **`S`** | Toggle Shorts visibility |
-| **`+`** | Add Channel (URL) |
-| **`-`** | Delete Channel |
-| **`M`** | Mark all visible videos as seen |
-| **`L`** | Open "Watch Later" |
-| **`Q`** | Quit |
-
-### Video List
-*   **Navigate:** `↑` / `↓`
-*   **Select:** `Enter` (Opens Action Menu)
-    *   *Play via QuickTube*
-    *   *Add to Watch Later*
-    *   *Open in Browser*
-*   **Search:** Just type! (e.g., "python tutorial")
-
-## 🛠️ Installation & Setup
-
-### Requirements
-*   Python 3.8+
-*   `yt-dlp` (For fetching metadata/channel IDs)
-*   `wl-copy` (Wayland) or `xclip` (X11) - For clipboard support.
-
-### Running from Source
-1.  Clone the repo:
-    ```bash
-    git clone https://github.com/coffe/ytrss2.git
-    cd ytrss2
-    ```
-
-2.  Set up Virtual Environment:
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
-    ```
-
-3.  Run:
-    ```bash
-    python ytrss.py
-    ```
+| Key | Context | Action |
+| :--- | :--- | :--- |
+| **`↑` / `↓`** | Navigation | Move selection |
+| **`Enter`** | Videos | Open Action Menu (Play, Watch Later, etc.) |
+| **`Type...`** | Anywhere | **Instant Search / Filter** |
+| **`R`** | System | Refresh all feeds |
+| **`S`** | System | Toggle Shorts (Show/Hide) |
+| **`L`** | System | Open "Watch Later" playlist |
+| **`M`** | System | Mark all visible videos as seen |
+| **`Q`** | System | Quit |
 
 ## ⚙️ Configuration
-Data is stored in `~/.config/ytrss/`:
-*   `ytRss.opml`: Subscription list (Standard OPML format).
-*   `ytrss.db`: Local database (History, Playlists, Metadata).
+The application automatically creates a configuration folder at `~/.config/ytrss/`.
+*   **Feeds:** stored in `ytRss.opml` (Standard OPML format).
+*   **Database:** `ytrss.db` stores history and metadata.
 
 ## 📄 License
 MIT
