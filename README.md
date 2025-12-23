@@ -37,7 +37,7 @@ Designed to work seamlessly with [QuickTube](https://github.com/coffe/QuickTube)
 ### Video List
 *   **Navigate:** `↑` / `↓`
 *   **Select:** `Enter` (Opens Action Menu)
-    *   *Play via QuickTube*
+    *   *Play / DL via QuickTube*
     *   *Add to Watch Later*
     *   *Open in Browser*
 *   **Search:** Just type! (e.g., "python tutorial")
