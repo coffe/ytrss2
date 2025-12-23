@@ -1,0 +1,25 @@
+# Python basics
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Build artifacts (PyInstaller)
+build/
+dist/
+*.spec
+
+# Backups and Logs
+*.bak
+*.log
+log.txt
+ytrss.py_20*
+KEYS.md
+
+# System
+.DS_Store
+Thumbs.db
