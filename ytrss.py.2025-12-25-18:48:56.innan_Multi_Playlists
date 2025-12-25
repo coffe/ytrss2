@@ -329,17 +329,6 @@ def get_playlist_videos(playlist_name):
         })
     return videos
 
-def get_all_playlists():
-    rows = db.fetchall("SELECT name, is_system_list FROM playlists ORDER BY is_system_list DESC, name ASC")
-    return [{"name": r['name'], "is_system": bool(r['is_system_list'])} for r in rows]
-
-def create_playlist(name):
-    try:
-        db.execute("INSERT INTO playlists (name, is_system_list) VALUES (?, 0)", (name,))
-        return True
-    except:
-        return False
-
 def remove_from_playlist(playlist_name, video_id):
     db.execute('''DELETE FROM playlist_items 
                  WHERE video_id = ? AND playlist_id = (SELECT id FROM playlists WHERE name = ?)''',
@@ -603,18 +592,12 @@ async def show_video_menu(videos, playlist_name=None):
         action_choices = [
             Choice("play", name="Play (QuickTube)"),
             Choice("watch_later", name="Add to Watch Later"),
-        ]
-        
-        if cfg.get_bool('General', 'multi_playlists'):
-            action_choices.append(Choice("add_to", name="Add to Playlist..."))
-
-        action_choices.extend([
             Choice("browser", name="Open in Browser"),
             Choice("cancel", name="Cancel")
-        ])
+        ]
         
         if playlist_name:
-            action_choices.insert(len(action_choices)-2, Choice("remove", name="Remove from Playlist"))
+            action_choices.insert(3, Choice("remove", name="Remove from Playlist"))
 
         action = await ui_select(
             message=f"Action for: {clean_title(video['title'])}", 
@@ -640,33 +623,6 @@ async def show_video_menu(videos, playlist_name=None):
             else:
                 console.print("Failed to add.", style="red")
             await asyncio.sleep(1.0)
-
-        elif action == "add_to":
-            playlists = get_all_playlists()
-            p_choices = [Choice(p['name'], name=f"   {p['name']}") for p in playlists]
-            p_choices.append(Separator(""))
-            p_choices.append(Choice("__new__", name="   [+] Create New Playlist"))
-            p_choices.append(Choice("__cancel__", name="   [x] Cancel"))
-            
-            p_selection = await ui_select(message="Select Playlist:", choices=p_choices)
-            
-            if p_selection == "__new__":
-                new_name = await ui_text(message="Enter Playlist Name:")
-                if new_name:
-                    if create_playlist(new_name):
-                        if add_to_playlist(new_name, video):
-                            console.print(f"Created and added to: {new_name}", style="green")
-                        else:
-                            console.print(f"Created {new_name} but failed to add video.", style="yellow")
-                    else:
-                        console.print(f"Could not create playlist '{new_name}'.", style="red")
-                await asyncio.sleep(1.5)
-            elif p_selection and p_selection != "__cancel__":
-                if add_to_playlist(p_selection, video):
-                    console.print(f"Added to: {p_selection}", style="green")
-                else:
-                    console.print("Failed to add.", style="red")
-                await asyncio.sleep(1.0)
 
         elif action == "browser":
             webbrowser.open(video['link'])
@@ -780,15 +736,8 @@ async def main_async():
             
             # Dashboard Statistics
             unread_total = len([v for v in all_videos_flat if not v['is_seen']])
-            
-            # Playlists data
-            all_playlists = get_all_playlists()
-            playlists_counts = {}
-            for p in all_playlists:
-                p_videos = get_playlist_videos(p['name'])
-                playlists_counts[p['name']] = len(p_videos)
-
-            wl_count = playlists_counts.get("Watch Later", 0)
+            wl_videos = get_playlist_videos("Watch Later")
+            wl_count = len(wl_videos)
             shorts_status = "ON" if SHOW_SHORTS else "OFF"
             
             # Create Dashboard Panel (Conditional Theme)
@@ -840,19 +789,15 @@ async def main_async():
             choices.append(Separator(browse_title))
             choices.append(Separator(""))
             
-            all_icon = "   ✨  " if is_newyear else ("   🎄  " if is_christmas else "   ⭐  ")
-            wl_icon = "   🥂  " if is_newyear else ("   🎁  " if is_christmas else "   📂  ")
-            
-            choices.append(Choice(value="ALL", name=f"{all_icon}All Videos ({unread_total} new)"))
-            
-            multi_on = cfg.get_bool('General', 'multi_playlists')
-            for p in all_playlists:
-                if not multi_on and p['name'] != "Watch Later":
-                    continue
+            if is_christmas:
+                all_icon, wl_icon = "   🎄  ", "   🎁  "
+            elif is_newyear:
+                all_icon, wl_icon = "   ✨  ", "   🥂  "
+            else:
+                all_icon, wl_icon = "   ⭐  ", "   📂  "
                 
-                count = playlists_counts.get(p['name'], 0);
-                icon = wl_icon if p['name'] == "Watch Later" else "   📜  "
-                choices.append(Choice(value=f"PL:{p['name']}", name=f"{icon}{p['name']} ({count})"))
+            choices.append(Choice(value="ALL", name=f"{all_icon}All Videos ({unread_total} new)"))
+            choices.append(Choice(value="WL", name=f"{wl_icon}Watch Later ({wl_count})"))
             
             # 2. CHANNELS
             if all_videos_by_channel:
@@ -889,10 +834,6 @@ async def main_async():
             
             choices.append(Choice("refresh", "   [ R ] Refresh feeds"))
             choices.append(Choice("settings", "   [ , ] Settings"))
-            
-            if multi_on:
-                choices.append(Choice("del_playlist", "   [ - ] Delete playlist"))
-
             choices.append(Choice("add",     "   [ + ] Add channel"))
             choices.append(Choice("del",     "   [ - ] Delete channel"))
             choices.append(Choice("mark",    "   [ M ] Mark all as seen"))
@@ -915,19 +856,6 @@ async def main_async():
                 continue
             elif selection == "refresh": 
                 should_refresh = True
-            elif selection == "del_playlist":
-                playlists = [p for p in get_all_playlists() if not p['is_system']]
-                if not playlists:
-                    console.print("No custom playlists to delete.", style="yellow")
-                    await asyncio.sleep(1.0)
-                    continue
-                p_choices = [Choice(p['name'], name=f"   {p['name']}") for p in playlists]
-                p_choices.append(Choice("__cancel__", name="   [x] Cancel"))
-                p_to_del = await ui_select(message="Select Playlist to DELETE:", choices=p_choices)
-                if p_to_del and p_to_del != "__cancel__":
-                    db.execute("DELETE FROM playlists WHERE name = ?", (p_to_del,))
-                    console.print(f"Playlist '{p_to_del}' deleted.", style="green")
-                    await asyncio.sleep(1.0)
             elif selection == "add":
                 url = await ui_text(message="Paste RSS URL:")
                 if url: 
@@ -944,17 +872,11 @@ async def main_async():
                 for v in unseen: v['is_seen'] = True
             elif selection == "ALL":
                 await show_video_menu(all_videos_flat[:60]) # Limit to 60 for perf
-            elif selection == "WL" or selection == "PL:Watch Later":
+            elif selection == "WL":
                 wl_videos = get_playlist_videos("Watch Later")
                 current_seen = get_seen_videos()
                 for v in wl_videos: v['is_seen'] = v['id'] in current_seen
                 await show_video_menu(wl_videos, playlist_name="Watch Later")
-            elif selection.startswith("PL:"):
-                p_name = selection.split("PL:")[1]
-                p_videos = get_playlist_videos(p_name)
-                current_seen = get_seen_videos()
-                for v in p_videos: v['is_seen'] = v['id'] in current_seen
-                await show_video_menu(p_videos, playlist_name=p_name)
             elif selection.startswith("CH:"):
                 name = selection.split("CH:")[1]
                 videos = sorted(all_videos_by_channel[name], key=lambda x: x['published'], reverse=True)

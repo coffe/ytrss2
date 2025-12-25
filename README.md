@@ -56,6 +56,21 @@ Files are stored in `~/.config/ytrss/`:
 *   `ytRss.opml`: Your subscription list.
 *   `ytrss.db`: SQLite database for history and metadata.
 
+## ✨ Seasonal Themes
+YTRSS 2.0 includes built-in seasonal themes to brighten up your terminal!
+*   **🎄 Christmas Edition:** Active Dec 20th - 26th. Features a festive red/green design with holiday icons.
+*   **🎆 New Year's Stardust:** Active Dec 30th - Jan 2nd. A glittering gold and white theme to ring in the new year.
+
+*Don't like themes?* You can easily toggle them off in the **Settings** menu.
+
+## ⚙️ Configuration
+A configuration file is automatically created at `~/.config/ytrss/ytrss.conf`. You can edit this file directly or change settings via the in-app **[ , ] Settings** menu.
+
+**Available Options:**
+*   `show_shorts`: Show or hide YouTube Shorts (default: `True`).
+*   `seasonal_themes`: Enable automatic holiday themes (default: `True`).
+*   `multi_playlists`: **(Experimental)** Enable support for multiple custom playlists.
+
 ## 📄 License
 MIT
 

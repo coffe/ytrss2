@@ -13,7 +13,6 @@ import json
 import platform
 import re
 import xml.etree.ElementTree as ET
-import configparser
 from datetime import datetime
 
 # Reduce Esc key delay (prevents lag when pressing Esc)
@@ -89,45 +88,14 @@ QUICKTUBE_CMD = "quicktube"
 CONFIG_DIR = os.path.expanduser("~/.config/ytrss")
 OPML_FILE = os.path.join(CONFIG_DIR, "ytRss.opml")
 DB_FILE = os.path.join(CONFIG_DIR, "ytrss.db")
-CONF_FILE = os.path.join(CONFIG_DIR, "ytrss.conf")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
-
-class ConfigManager:
-    def __init__(self, conf_file):
-        self.conf_file = conf_file
-        self.config = configparser.ConfigParser()
-        self.load_defaults()
-        if os.path.exists(self.conf_file):
-            self.config.read(self.conf_file)
-        else:
-            self.save()
-
-    def load_defaults(self):
-        if 'General' not in self.config:
-            self.config['General'] = {}
-        self.config['General'].setdefault('show_shorts', 'True')
-        self.config['General'].setdefault('seasonal_themes', 'True')
-        self.config['General'].setdefault('multi_playlists', 'False')
-
-    def save(self):
-        os.makedirs(os.path.dirname(self.conf_file), exist_ok=True)
-        with open(self.conf_file, 'w') as f:
-            self.config.write(f)
-
-    def get_bool(self, section, key):
-        return self.config.getboolean(section, key)
-
-    def set_val(self, section, key, value):
-        self.config[section][key] = str(value)
-        self.save()
 
 # Create config directory if it doesn't exist
 os.makedirs(CONFIG_DIR, exist_ok=True)
-cfg = ConfigManager(CONF_FILE)
 
 # Global state
 duration_cache = {}
-SHOW_SHORTS = cfg.get_bool('General', 'show_shorts')
+SHOW_SHORTS = True  # Default: Show shorts
 
 class DatabaseManager:
     def __init__(self, db_file):
@@ -328,17 +296,6 @@ def get_playlist_videos(playlist_name):
             'is_seen': False
         })
     return videos
-
-def get_all_playlists():
-    rows = db.fetchall("SELECT name, is_system_list FROM playlists ORDER BY is_system_list DESC, name ASC")
-    return [{"name": r['name'], "is_system": bool(r['is_system_list'])} for r in rows]
-
-def create_playlist(name):
-    try:
-        db.execute("INSERT INTO playlists (name, is_system_list) VALUES (?, 0)", (name,))
-        return True
-    except:
-        return False
 
 def remove_from_playlist(playlist_name, video_id):
     db.execute('''DELETE FROM playlist_items 
@@ -603,18 +560,12 @@ async def show_video_menu(videos, playlist_name=None):
         action_choices = [
             Choice("play", name="Play (QuickTube)"),
             Choice("watch_later", name="Add to Watch Later"),
-        ]
-        
-        if cfg.get_bool('General', 'multi_playlists'):
-            action_choices.append(Choice("add_to", name="Add to Playlist..."))
-
-        action_choices.extend([
             Choice("browser", name="Open in Browser"),
             Choice("cancel", name="Cancel")
-        ])
+        ]
         
         if playlist_name:
-            action_choices.insert(len(action_choices)-2, Choice("remove", name="Remove from Playlist"))
+            action_choices.insert(3, Choice("remove", name="Remove from Playlist"))
 
         action = await ui_select(
             message=f"Action for: {clean_title(video['title'])}", 
@@ -641,33 +592,6 @@ async def show_video_menu(videos, playlist_name=None):
                 console.print("Failed to add.", style="red")
             await asyncio.sleep(1.0)
 
-        elif action == "add_to":
-            playlists = get_all_playlists()
-            p_choices = [Choice(p['name'], name=f"   {p['name']}") for p in playlists]
-            p_choices.append(Separator(""))
-            p_choices.append(Choice("__new__", name="   [+] Create New Playlist"))
-            p_choices.append(Choice("__cancel__", name="   [x] Cancel"))
-            
-            p_selection = await ui_select(message="Select Playlist:", choices=p_choices)
-            
-            if p_selection == "__new__":
-                new_name = await ui_text(message="Enter Playlist Name:")
-                if new_name:
-                    if create_playlist(new_name):
-                        if add_to_playlist(new_name, video):
-                            console.print(f"Created and added to: {new_name}", style="green")
-                        else:
-                            console.print(f"Created {new_name} but failed to add video.", style="yellow")
-                    else:
-                        console.print(f"Could not create playlist '{new_name}'.", style="red")
-                await asyncio.sleep(1.5)
-            elif p_selection and p_selection != "__cancel__":
-                if add_to_playlist(p_selection, video):
-                    console.print(f"Added to: {p_selection}", style="green")
-                else:
-                    console.print("Failed to add.", style="red")
-                await asyncio.sleep(1.0)
-
         elif action == "browser":
             webbrowser.open(video['link'])
             mark_as_seen(video['id'], video['title'])
@@ -680,33 +604,6 @@ async def show_video_menu(videos, playlist_name=None):
             else:
                 console.print("Could not remove.", style="red")
             await asyncio.sleep(1.0)
-
-async def show_settings_menu():
-    global SHOW_SHORTS
-    while True:
-        clear_screen()
-        choices = [
-            Choice("toggle_shorts", f"Show Shorts: {'[ON]' if cfg.get_bool('General', 'show_shorts') else '[OFF]'}"),
-            Choice("toggle_themes", f"Seasonal Themes: {'[ON]' if cfg.get_bool('General', 'seasonal_themes') else '[OFF]'}"),
-            Choice("toggle_multi",  f"Enable Multi-Playlists (WIP): {'[ON]' if cfg.get_bool('General', 'multi_playlists') else '[OFF]'}"),
-            Separator(""),
-            Choice("back", "[ Go Back ]")
-        ]
-        
-        selection = await ui_select(message="Settings Menu:", choices=choices)
-        
-        if selection == "back" or selection is None:
-            break
-        elif selection == "toggle_shorts":
-            new_val = not cfg.get_bool('General', 'show_shorts')
-            cfg.set_val('General', 'show_shorts', new_val)
-            SHOW_SHORTS = new_val
-        elif selection == "toggle_themes":
-            new_val = not cfg.get_bool('General', 'seasonal_themes')
-            cfg.set_val('General', 'seasonal_themes', new_val)
-        elif selection == "toggle_multi":
-            new_val = not cfg.get_bool('General', 'multi_playlists')
-            cfg.set_val('General', 'multi_playlists', new_val)
 
 async def main_async():
     global duration_cache, SHOW_SHORTS
@@ -780,127 +677,57 @@ async def main_async():
             
             # Dashboard Statistics
             unread_total = len([v for v in all_videos_flat if not v['is_seen']])
-            
-            # Playlists data
-            all_playlists = get_all_playlists()
-            playlists_counts = {}
-            for p in all_playlists:
-                p_videos = get_playlist_videos(p['name'])
-                playlists_counts[p['name']] = len(p_videos)
-
-            wl_count = playlists_counts.get("Watch Later", 0)
+            wl_videos = get_playlist_videos("Watch Later")
+            wl_count = len(wl_videos)
             shorts_status = "ON" if SHOW_SHORTS else "OFF"
             
-            # Create Dashboard Panel (Conditional Theme)
-            use_themes = cfg.get_bool('General', 'seasonal_themes')
-            month = datetime.now().month
-            day = datetime.now().day
-            
-            is_christmas = use_themes and month == 12 and (20 <= day <= 26)
-            is_newyear = use_themes and ((month == 12 and day >= 30) or (month == 1 and day <= 2))
-
-            if is_christmas:
-                title = "[bold red]❄️  YTRSS CHRISTMAS EDITION  ❄️[/bold red]"
-                border = "green"
-                stats_text = (
-                    f"[bold white]New Videos:[/bold white] [bold red]{unread_total}[/bold red]  │  "
-                    f"[bold white]Watch Later:[/bold white] [bold green]{wl_count}[/bold green]  │  "
-                    f"[bold white]Shorts:[/bold white] [bold yellow]{shorts_status}[/bold yellow]"
-                )
-            elif is_newyear:
-                title = "[bold bright_white]✧･ﾟ:* [/bold bright_white][bold gold1]HAPPY NEW YEAR[/bold gold1][bold bright_white] *:･ﾟ✧[/bold bright_white]"
-                border = "yellow"
-                stats_text = (
-                    f"[grey50]｡ﾟ•[/grey50] [bold white]Videos:[/bold white] [bold gold1]{unread_total}[/bold gold1] [grey50]•[/grey50]  "
-                    f"[grey50]•[/grey50] [bold white]Saved:[/bold white] [bold gold1]{wl_count}[/bold gold1] [grey50]•[/grey50]  "
-                    f"[grey50]•[/grey50] [bold white]Shorts:[/bold white] [bold gold1]{shorts_status}[/bold gold1] [grey50]•ﾟ｡[/grey50]"
-                )
-            else:
-                title = "[bold white]YTRSS 2.0[/bold white]"
-                border = "blue"
-                stats_text = (
-                    f"New Videos: [bold blue]{unread_total}[/bold blue]  │  "
-                    f"Watch Later: [bold blue]{wl_count}[/bold blue]  │  "
-                    f"Shorts: [bold blue]{shorts_status}[/bold blue]"
-                )
-
-            console.print(Panel(stats_text, title=title, border_style=border, expand=False, padding=(0, 1) if not is_newyear else (1, 2)))
+            # Create Dashboard Panel
+            stats_text = (
+                f"[bold white]New Videos:[/bold white] [green]{unread_total}[/green]  │  "
+                f"[bold white]Watch Later:[/bold white] [cyan]{wl_count}[/cyan]  │  "
+                f"[bold white]Shorts:[/bold white] [yellow]{shorts_status}[/yellow]"
+            )
+            console.print(Panel(stats_text, title="[bold cyan]YTRSS 2.0 DASHBOARD[/bold cyan]", border_style="blue", expand=False))
             
             choices = []
+            
+            # Blank line
             choices.append(Separator(""))
 
-            # 1. BROWSE
-            if is_christmas:
-                browse_title = "  ─ [ BROWSE ] ❄️ * ❄️ ──────────────────────"
-            elif is_newyear:
-                browse_title = "  ─ [ BROWSE ] ✧･ﾟ:* ───────────────────────"
-            else:
-                browse_title = "  ─ [ BROWSE ] ────────────────────────────"
-            
-            choices.append(Separator(browse_title))
+            # 1. BROWSE (Priority Content)
+            choices.append(Separator("  ─ [ BROWSE ] ────────────────────────────"))
             choices.append(Separator(""))
+            choices.append(Choice(value="ALL", name=f"   ✨  All Videos ({unread_total} new)"))
+            choices.append(Choice(value="WL", name=f"   📂  Watch Later ({wl_count})"))
             
-            all_icon = "   ✨  " if is_newyear else ("   🎄  " if is_christmas else "   ⭐  ")
-            wl_icon = "   🥂  " if is_newyear else ("   🎁  " if is_christmas else "   📂  ")
-            
-            choices.append(Choice(value="ALL", name=f"{all_icon}All Videos ({unread_total} new)"))
-            
-            multi_on = cfg.get_bool('General', 'multi_playlists')
-            for p in all_playlists:
-                if not multi_on and p['name'] != "Watch Later":
-                    continue
-                
-                count = playlists_counts.get(p['name'], 0);
-                icon = wl_icon if p['name'] == "Watch Later" else "   📜  "
-                choices.append(Choice(value=f"PL:{p['name']}", name=f"{icon}{p['name']} ({count})"))
-            
-            # 2. CHANNELS
+            # 2. CHANNELS (Content)
             if all_videos_by_channel:
                 choices.append(Separator(""))
-                if is_christmas:
-                    ch_title = "  ─ [ CHANNELS ] ❄️ * ❄️ ────────────────────"
-                elif is_newyear:
-                    ch_title = "  ─ [ CHANNELS ] ✧･ﾟ:* ─────────────────────"
-                else:
-                    ch_title = "  ─ [ CHANNELS ] ──────────────────────────"
-                
-                choices.append(Separator(ch_title))
+                choices.append(Separator("  ─ [ CHANNELS ] ──────────────────────────"))
                 choices.append(Separator(""))
-                
-                if is_christmas: ch_icon = "   🎅  "
-                elif is_newyear: ch_icon = "   🔔  "
-                else:            ch_icon = "   📺  "
-                
                 for name in sorted(all_videos_by_channel.keys()):
                     count = len([v for v in all_videos_by_channel[name] if not v['is_seen']])
-                    choices.append(Choice(value=f"CH:{name}", name=f"{ch_icon}{name} ({count})"))
+                    # Visual cue: '>' or '📺' makes it look like a folder/object
+                    choices.append(Choice(value=f"CH:{name}", name=f"   📺  {name} ({count})"))
             
-            # 3. SYSTEM
+            # 3. SYSTEM / TOOLS (Bottom Controls)
             choices.append(Separator(""))
-            if is_christmas:
-                sys_title = "  ─ [ SYSTEM ] ❄️ * ❄️ ──────────────────────"
-            elif is_newyear:
-                sys_title = "  ─ [ SYSTEM ] ✧･ﾟ:* ───────────────────────"
-            else:
-                sys_title = "  ─ [ SYSTEM ] ────────────────────────────"
-            
-            choices.append(Separator(sys_title))
+            choices.append(Separator("  ─ [ SYSTEM ] ────────────────────────────"))
             choices.append(Separator(""))
             
+            # Tool styling: Looks like buttons [ Key ]
+            shorts_status = "ON" if SHOW_SHORTS else "OFF"
             choices.append(Choice("refresh", "   [ R ] Refresh feeds"))
-            choices.append(Choice("settings", "   [ , ] Settings"))
-            
-            if multi_on:
-                choices.append(Choice("del_playlist", "   [ - ] Delete playlist"))
-
+            choices.append(Choice("shorts",  f"   [ S ] Toggle Shorts ({shorts_status})"))
             choices.append(Choice("add",     "   [ + ] Add channel"))
             choices.append(Choice("del",     "   [ - ] Delete channel"))
             choices.append(Choice("mark",    "   [ M ] Mark all as seen"))
             choices.append(Choice("help",    "   [ ? ] Help"))
             choices.append(Choice("quit",    "   [ Q ] Quit"))
 
+            # Use fuzzy filter for main menu to allow quick navigation
             selection = await ui_filter(
-                message="YTRSS Main Menu", 
+                message="YTRSS Main Menu [ Esc = Back/quit ]", 
                 choices=choices,
                 max_height="90%"
             )
@@ -909,25 +736,15 @@ async def main_async():
                 clear_screen()
                 sys.exit()
             
+            # Remember selection for next loop
+            last_selection = selection
+
             if selection == "help": show_help()
-            elif selection == "settings": 
-                await show_settings_menu()
+            elif selection == "shorts": 
+                SHOW_SHORTS = not SHOW_SHORTS
                 continue
             elif selection == "refresh": 
                 should_refresh = True
-            elif selection == "del_playlist":
-                playlists = [p for p in get_all_playlists() if not p['is_system']]
-                if not playlists:
-                    console.print("No custom playlists to delete.", style="yellow")
-                    await asyncio.sleep(1.0)
-                    continue
-                p_choices = [Choice(p['name'], name=f"   {p['name']}") for p in playlists]
-                p_choices.append(Choice("__cancel__", name="   [x] Cancel"))
-                p_to_del = await ui_select(message="Select Playlist to DELETE:", choices=p_choices)
-                if p_to_del and p_to_del != "__cancel__":
-                    db.execute("DELETE FROM playlists WHERE name = ?", (p_to_del,))
-                    console.print(f"Playlist '{p_to_del}' deleted.", style="green")
-                    await asyncio.sleep(1.0)
             elif selection == "add":
                 url = await ui_text(message="Paste RSS URL:")
                 if url: 
@@ -944,17 +761,11 @@ async def main_async():
                 for v in unseen: v['is_seen'] = True
             elif selection == "ALL":
                 await show_video_menu(all_videos_flat[:60]) # Limit to 60 for perf
-            elif selection == "WL" or selection == "PL:Watch Later":
+            elif selection == "WL":
                 wl_videos = get_playlist_videos("Watch Later")
                 current_seen = get_seen_videos()
                 for v in wl_videos: v['is_seen'] = v['id'] in current_seen
                 await show_video_menu(wl_videos, playlist_name="Watch Later")
-            elif selection.startswith("PL:"):
-                p_name = selection.split("PL:")[1]
-                p_videos = get_playlist_videos(p_name)
-                current_seen = get_seen_videos()
-                for v in p_videos: v['is_seen'] = v['id'] in current_seen
-                await show_video_menu(p_videos, playlist_name=p_name)
             elif selection.startswith("CH:"):
                 name = selection.split("CH:")[1]
                 videos = sorted(all_videos_by_channel[name], key=lambda x: x['published'], reverse=True)
