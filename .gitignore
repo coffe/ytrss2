@@ -22,3 +22,4 @@ ytrss.py_20*
 # System
 .DS_Store
 Thumbs.db
+ytrss.py.*

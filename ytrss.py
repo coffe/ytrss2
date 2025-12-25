@@ -14,75 +14,16 @@ import platform
 import re
 import xml.etree.ElementTree as ET
 import configparser
+from src.config import ConfigManager
+from src.database import DatabaseManager
+from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path
+from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer
 from datetime import datetime
 
 # Reduce Esc key delay (prevents lag when pressing Esc)
 os.environ.setdefault('ESCDELAY', '25')
 
-# UI Libraries
-try:
-    from InquirerPy import inquirer
-    from InquirerPy.base.control import Choice
-    from InquirerPy.separator import Separator
-    from rich.console import Console
-    from rich.style import Style
-    from rich.panel import Panel
-except ImportError:
-    print("Error: Missing dependencies.")
-    print("Please install requirements: pip install -r requirements.txt")
-    sys.exit(1)
-
 console = Console()
-
-# Keybindings mapping 'escape' to 'interrupt'
-# 'q' is removed to allow searching for words with 'q'
-kb_select = {
-    "interrupt": [{"key": "escape"}]
-}
-
-kb_input_esc = {
-    "interrupt": [{"key": "escape"}]
-}
-
-async def ui_select(message, choices, **kwargs):
-    kwargs.setdefault("instruction", "[Esc] Back")
-    try:
-        # Use select for cursor memory and Separator support
-        return await inquirer.select(
-            message=message, 
-            choices=choices, 
-            keybindings=kb_select,
-            qmark="",
-            amark="",
-            **kwargs
-        ).execute_async()
-    except KeyboardInterrupt:
-        return None
-
-async def ui_filter(message, choices, **kwargs):
-    """Fuzzy search select for filtering lists."""
-    kwargs.setdefault("instruction", "[Type to Search] [Esc] Back")
-    
-    # inquirer.fuzzy does not support Separator, so we must filter them out
-    clean_choices = [c for c in choices if not isinstance(c, Separator)]
-    
-    try:
-        return await inquirer.fuzzy(
-            message=message,
-            choices=clean_choices,
-            keybindings=kb_select,
-            qmark="",
-            amark="",
-            **kwargs
-        ).execute_async()
-    except KeyboardInterrupt:
-        return None
-
-async def ui_text(message, **kwargs):
-    try:
-        return await inquirer.text(message=message, keybindings=kb_input_esc, **kwargs).execute_async()
-    except KeyboardInterrupt:
-        return None
 
 # Configuration
 QUICKTUBE_CMD = "quicktube"
@@ -92,35 +33,6 @@ DB_FILE = os.path.join(CONFIG_DIR, "ytrss.db")
 CONF_FILE = os.path.join(CONFIG_DIR, "ytrss.conf")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
 
-class ConfigManager:
-    def __init__(self, conf_file):
-        self.conf_file = conf_file
-        self.config = configparser.ConfigParser()
-        self.load_defaults()
-        if os.path.exists(self.conf_file):
-            self.config.read(self.conf_file)
-        else:
-            self.save()
-
-    def load_defaults(self):
-        if 'General' not in self.config:
-            self.config['General'] = {}
-        self.config['General'].setdefault('show_shorts', 'True')
-        self.config['General'].setdefault('seasonal_themes', 'True')
-        self.config['General'].setdefault('multi_playlists', 'False')
-
-    def save(self):
-        os.makedirs(os.path.dirname(self.conf_file), exist_ok=True)
-        with open(self.conf_file, 'w') as f:
-            self.config.write(f)
-
-    def get_bool(self, section, key):
-        return self.config.getboolean(section, key)
-
-    def set_val(self, section, key, value):
-        self.config[section][key] = str(value)
-        self.save()
-
 # Create config directory if it doesn't exist
 os.makedirs(CONFIG_DIR, exist_ok=True)
 cfg = ConfigManager(CONF_FILE)
@@ -129,139 +41,7 @@ cfg = ConfigManager(CONF_FILE)
 duration_cache = {}
 SHOW_SHORTS = cfg.get_bool('General', 'show_shorts')
 
-class DatabaseManager:
-    def __init__(self, db_file):
-        self.db_file = db_file
-        self.conn = None
-
-    def connect(self):
-        if self.conn is None:
-            self.conn = sqlite3.connect(self.db_file)
-            self.conn.row_factory = sqlite3.Row
-            self._migrate()
-    
-    def _migrate(self):
-        c = self.conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS seen_videos
-                     (video_id TEXT PRIMARY KEY, title TEXT, seen_date TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS video_metadata
-                     (video_id TEXT PRIMARY KEY, duration TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS playlists (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL UNIQUE,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        is_system_list BOOLEAN DEFAULT 0
-                     )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS videos (
-                        video_id TEXT PRIMARY KEY,
-                        title TEXT,
-                        channel TEXT,
-                        url TEXT,
-                        duration TEXT,
-                        is_shorts BOOLEAN,
-                        published_date TEXT,
-                        first_seen TEXT DEFAULT CURRENT_TIMESTAMP
-                     )''')
-        c.execute('''CREATE TABLE IF NOT EXISTS playlist_items (
-                        playlist_id INTEGER NOT NULL,
-                        video_id TEXT NOT NULL,
-                        added_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-                        FOREIGN KEY (video_id) REFERENCES videos(video_id) ON DELETE CASCADE,
-                        PRIMARY KEY (playlist_id, video_id)
-                     )''')
-        c.execute("INSERT OR IGNORE INTO playlists (name, is_system_list) VALUES (?, ?)", ("Watch Later", 1))
-        self.conn.commit()
-
-    def execute(self, query, params=()):
-        if not self.conn: self.connect()
-        try:
-            c = self.conn.cursor()
-            c.execute(query, params)
-            self.conn.commit()
-            return c
-        except Exception as e:
-            console.print(f"DB Error: {e}", style="red")
-            return None
-
-    def executemany(self, query, params_list):
-        if not self.conn: self.connect()
-        try:
-            c = self.conn.cursor()
-            c.executemany(query, params_list)
-            self.conn.commit()
-            return c
-        except Exception as e:
-            console.print(f"DB Error: {e}", style="red")
-            return None
-            
-    def fetchall(self, query, params=()):
-        if not self.conn: self.connect()
-        try:
-            c = self.conn.cursor()
-            c.execute(query, params)
-            return c.fetchall()
-        except Exception as e:
-            return []
-
-    def fetchone(self, query, params=()):
-        if not self.conn: self.connect()
-        try:
-            c = self.conn.cursor()
-            c.execute(query, params)
-            return c.fetchone()
-        except Exception as e:
-            return None
-
-    def close(self):
-        if self.conn:
-            self.conn.close()
-            self.conn = None
-
 db = DatabaseManager(DB_FILE)
-
-def clipboard_copy(text):
-    """Cross-platform clipboard copy."""
-    system = platform.system()
-    try:
-        if system == "Windows":
-            # PowerShell Set-Clipboard
-            # Escape single quotes for PowerShell
-            safe_text = text.replace("'", "''")
-            cmd = ["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value '{safe_text}'"]
-            subprocess.run(cmd, check=False)
-        elif system == "Darwin":
-             p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-             p.communicate(input=text.encode('utf-8'))
-        else:
-             # Linux
-             if shutil.which("wl-copy"):
-                 p = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE)
-                 p.communicate(input=text.encode('utf-8'))
-             elif shutil.which("xclip"):
-                 p = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
-                 p.communicate(input=text.encode('utf-8'))
-    except Exception as e:
-        console.print(f"Clipboard error: {e}", style="red")
-
-def clear_screen():
-    os.system('cls' if platform.system() == 'Windows' else 'clear')
-
-def clean_title(text):
-    """Removes emojis and other characters that cause terminal rendering glitches."""
-    if not text: return ""
-    text = unicodedata.normalize('NFKC', text)
-    cleaned = []
-    for char in text:
-        if ord(char) > 0xFFFF: continue
-        category = unicodedata.category(char)
-        if category.startswith(('C', 'S')):
-            if char in "$-+/%": cleaned.append(char)
-            else: cleaned.append(" ")
-        else:
-            cleaned.append(char)
-    text = "".join(cleaned)
-    return " ".join(text.split())
 
 def mark_as_seen(video_id, title):
     db.execute("INSERT OR IGNORE INTO seen_videos (video_id, title, seen_date) VALUES (?, ?, ?)",
@@ -480,11 +260,6 @@ async def remove_channel_ui():
         body.remove(outlines[idx])
         tree.write(OPML_FILE, encoding='UTF-8', xml_declaration=True)
         console.print("Channel removed.", style="green")
-
-def get_resource_path(relative_path):
-    try: base_path = sys._MEIPASS
-    except: base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
 
 def show_help():
     help_text = """
