@@ -1,0 +1,112 @@
+import sys
+import os
+
+try:
+    from InquirerPy import inquirer
+    from InquirerPy.base.control import Choice
+    from InquirerPy.separator import Separator
+    from rich.console import Console
+    from rich.style import Style
+    from rich.panel import Panel
+    from rich.columns import Columns
+    from rich.text import Text
+    from rich.table import Table
+except ImportError:
+    print("Error: Missing dependencies.")
+    print("Please install requirements: pip install -r requirements.txt")
+    sys.exit(1)
+
+# Keybindings mapping 'escape' to 'interrupt'
+# 'q' is removed to allow searching for words with 'q'
+kb_select = {
+    "interrupt": [{"key": "escape"}]
+}
+
+kb_input_esc = {
+    "interrupt": [{"key": "escape"}]
+}
+
+async def ui_select(message, choices, **kwargs):
+    kwargs.setdefault("instruction", "[Esc] Back")
+    try:
+        # Use select for cursor memory and Separator support
+        return await inquirer.select(
+            message=message, 
+            choices=choices, 
+            keybindings=kb_select,
+            qmark="",
+            amark="",
+            **kwargs
+        ).execute_async()
+    except KeyboardInterrupt:
+        return None
+
+async def ui_filter(message, choices, **kwargs):
+    """Fuzzy search select for filtering lists."""
+    kwargs.setdefault("instruction", "[Type to Search] [Esc] Back")
+    
+    # inquirer.fuzzy does not support Separator, so we must filter them out
+    clean_choices = [c for c in choices if not isinstance(c, Separator)]
+    
+    try:
+        return await inquirer.fuzzy(
+            message=message,
+            choices=clean_choices,
+            keybindings=kb_select,
+            qmark="",
+            amark="",
+            **kwargs
+        ).execute_async()
+    except KeyboardInterrupt:
+        return None
+
+async def ui_text(message, **kwargs):
+    try:
+        return await inquirer.text(message=message, keybindings=kb_input_esc, **kwargs).execute_async()
+    except KeyboardInterrupt:
+        return None
+
+async def show_stats_ui(stats, duration_to_secs_func, secs_to_readable_func):
+    """Renders the statistics dashboard."""
+    console = Console()
+    
+    # Calculate times
+    total_seconds = sum(duration_to_secs_func(d) for d in stats['seen_durations'])
+    backlog_seconds = sum(duration_to_secs_func(d) for d in stats['backlog_durations'])
+    
+    total_time_str = secs_to_readable_func(total_seconds)
+    backlog_time_str = secs_to_readable_func(backlog_seconds)
+    
+    # Create Panels
+    time_panel = Panel(
+        Text.assemble(("Total Watch Time\n", "bold cyan"), (f"🕐 {total_time_str}", "white")),
+        title="[Insights]", border_style="blue"
+    )
+    
+    backlog_panel = Panel(
+        Text.assemble(("Backlog Duration\n", "bold yellow"), (f"🎒 {backlog_time_str}", "white")),
+        title="[Watch Later]", border_style="yellow"
+    )
+    
+    # Top Channels Table
+    table = Table(title="🏆 Top Channels (Seen Videos)", box=None, header_style="bold magenta")
+    table.add_column("Channel", style="white")
+    table.add_column("Videos", justify="right", style="green")
+    
+    for item in stats['top_channels']:
+        table.add_row(item['channel'], str(item['count']))
+    
+    # Layout
+    from rich.layout import Layout
+    layout = Layout()
+    layout.split_column(
+        Layout(Columns([time_panel, backlog_panel]), size=5),
+        Layout(Panel(table, border_style="magenta"))
+    )
+    
+    from src.utils import clear_screen
+    clear_screen()
+    console.print(Panel(layout, title="[bold white]YTRSS INSIGHTS[/bold white]", subtitle="[Esc] Back", height=18))
+    
+    # Wait for Esc/Enter
+    await ui_select(message="", choices=[Choice(value="back", name="Back")])

@@ -14,10 +14,13 @@ import platform
 import re
 import xml.etree.ElementTree as ET
 import configparser
+from typing import List, Dict, Optional, Set, Any, Tuple
 from src.config import ConfigManager
 from src.database import DatabaseManager
-from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path
-from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer
+from src.downloader import select_and_download
+from src.player import play_stream, play_local_file
+from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, seconds_to_readable, download_video, check_dependencies, install_ytdlp
+from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer, show_stats_ui, Group, Align
 from datetime import datetime
 
 # Reduce Esc key delay (prevents lag when pressing Esc)
@@ -26,7 +29,6 @@ os.environ.setdefault('ESCDELAY', '25')
 console = Console()
 
 # Configuration
-QUICKTUBE_CMD = "quicktube"
 CONFIG_DIR = os.path.expanduser("~/.config/ytrss")
 OPML_FILE = os.path.join(CONFIG_DIR, "ytRss.opml")
 DB_FILE = os.path.join(CONFIG_DIR, "ytrss.db")
@@ -40,35 +42,56 @@ cfg = ConfigManager(CONF_FILE)
 # Global state
 duration_cache = {}
 SHOW_SHORTS = cfg.get_bool('General', 'show_shorts')
+DOWNLOAD_PATH = cfg.get_str('General', 'download_path')
+PLAYER_CMD = cfg.get_str('General', 'player')
 
 db = DatabaseManager(DB_FILE)
 
-def mark_as_seen(video_id, title):
+def mark_as_seen(video_id: str, title: str) -> None:
+    """Marks a single video as seen in the database."""
     db.execute("INSERT OR IGNORE INTO seen_videos (video_id, title, seen_date) VALUES (?, ?, ?)",
                (video_id, title, datetime.now().isoformat()))
 
-def mark_all_as_seen(videos):
+def save_download_path(video_id: str, path: Optional[str]) -> None:
+    """Updates the local file path for a downloaded video."""
+    db.execute("UPDATE videos SET download_path = ? WHERE video_id = ?", (path, video_id))
+
+def mark_all_as_seen(videos: List[Dict[str, Any]]) -> None:
+    """Marks a list of video objects as seen in bulk."""
     now = datetime.now().isoformat()
     data = [(v['id'], v['title'], now) for v in videos]
     db.executemany("INSERT OR IGNORE INTO seen_videos (video_id, title, seen_date) VALUES (?, ?, ?)", data)
     console.print(f"Marked {len(videos)} videos as seen.", style="green")
 
-def get_seen_videos():
+def get_seen_videos() -> Set[str]:
+    """Retrieves a set of all seen video IDs."""
     seen = set()
     rows = db.fetchall("SELECT video_id FROM seen_videos")
     for row in rows: seen.add(row[0])
     return seen
 
-def get_cached_metadata():
+def get_cached_metadata() -> Dict[str, str]:
+    """Loads cached video durations from the database."""
     metadata = {}
     rows = db.fetchall("SELECT video_id, duration FROM video_metadata")
     for row in rows: metadata[row[0]] = row[1]
     return metadata
 
-def save_metadata(video_id, duration):
+def save_metadata(video_id: str, duration: str) -> None:
+    """Saves a video's duration to the metadata cache."""
     db.execute("INSERT OR REPLACE INTO video_metadata (video_id, duration) VALUES (?, ?)", (video_id, duration))
 
-def add_to_playlist(playlist_name, video):
+def add_to_playlist(playlist_name: str, video: Dict[str, Any]) -> bool:
+    """
+    Adds a video to a specific playlist.
+    
+    Args:
+        playlist_name (str): Name of the target playlist.
+        video (dict): Video object containing metadata (id, title, link, etc).
+        
+    Returns:
+        bool: True if successful, False if playlist doesn't exist.
+    """
     row = db.fetchone("SELECT id FROM playlists WHERE name = ?", (playlist_name,))
     if not row: return False
     playlist_id = row[0]
@@ -89,7 +112,16 @@ def add_to_playlist(playlist_name, video):
               (playlist_id, video['id']))
     return True
 
-def get_playlist_videos(playlist_name):
+def get_playlist_videos(playlist_name: str) -> List[Dict[str, Any]]:
+    """
+    Retrieves all videos from a playlist.
+    
+    Args:
+        playlist_name (str): Name of the playlist to query.
+        
+    Returns:
+        list: A list of video dictionaries.
+    """
     videos = []
     rows = db.fetchall('''SELECT v.* FROM videos v
                      JOIN playlist_items pi ON v.video_id = pi.video_id
@@ -97,6 +129,11 @@ def get_playlist_videos(playlist_name):
                      WHERE p.name = ?
                      ORDER BY pi.added_at DESC''', (playlist_name,))
     for row in rows:
+        # Check if file actually exists
+        dl_path = row['download_path']
+        if dl_path and not os.path.exists(dl_path):
+            dl_path = None # File moved or deleted
+            
         videos.append({
             'id': row['video_id'],
             'title': row['title'],
@@ -105,28 +142,42 @@ def get_playlist_videos(playlist_name):
             'duration': row['duration'],
             'is_shorts': bool(row['is_shorts']),
             'published': row['published_date'],
+            'download_path': dl_path,
             'is_seen': False
         })
     return videos
 
-def get_all_playlists():
+def get_all_playlists() -> List[Dict[str, Any]]:
+    """Returns a list of all playlists (both system and user-created)."""
     rows = db.fetchall("SELECT name, is_system_list FROM playlists ORDER BY is_system_list DESC, name ASC")
     return [{"name": r['name'], "is_system": bool(r['is_system_list'])} for r in rows]
 
-def create_playlist(name):
+def create_playlist(name: str) -> bool:
+    """Creates a new user playlist."""
     try:
         db.execute("INSERT INTO playlists (name, is_system_list) VALUES (?, 0)", (name,))
         return True
     except:
         return False
 
-def remove_from_playlist(playlist_name, video_id):
+def remove_from_playlist(playlist_name: str, video_id: str) -> bool:
+    """Removes a video from a specific playlist."""
     db.execute('''DELETE FROM playlist_items 
                  WHERE video_id = ? AND playlist_id = (SELECT id FROM playlists WHERE name = ?)''',
               (video_id, playlist_name))
     return True
 
-async def get_video_duration(video_url, video_id):
+async def get_video_duration(video_url: str, video_id: str) -> str:
+    """
+    Fetches video duration using HTML scraping (fast) or yt-dlp (reliable).
+    
+    Args:
+        video_url (str): The URL of the YouTube video.
+        video_id (str): The YouTube Video ID.
+        
+    Returns:
+        str: Duration string (e.g. "04:20") or "??:??" if failed.
+    """
     if video_id in duration_cache and duration_cache[video_id] != "??:??":
         return duration_cache[video_id]
     
@@ -171,7 +222,8 @@ async def get_video_duration(video_url, video_id):
     except: pass
     return "??:??"
 
-def load_feeds_from_opml():
+def load_feeds_from_opml() -> List[str]:
+    """Parses the OPML file and returns a list of RSS URLs."""
     if not os.path.exists(OPML_FILE): return []
     urls = []
     try:
@@ -183,7 +235,11 @@ def load_feeds_from_opml():
     except: pass
     return urls
 
-async def resolve_rss_url_async(url):
+async def resolve_rss_url_async(url: str) -> str:
+    """
+    Attempts to resolve a generic YouTube channel URL into an RSS feed URL.
+    Uses yt-dlp to find the underlying channel ID if necessary.
+    """
     if "xml" in url or "feed" in url: return url
     console.print(f"Resolving channel ID for: {url} ...", style="dim")
     try:
@@ -201,7 +257,11 @@ async def resolve_rss_url_async(url):
     except: pass
     return url
 
-async def add_feed_to_opml_async(url):
+async def add_feed_to_opml_async(url: str) -> None:
+    """
+    Verifies a URL and adds it to the OPML subscription list if valid.
+    Checks for duplicates before adding.
+    """
     url = await resolve_rss_url_async(url)
     console.print(f"Verifying link: {url} ...", style="dim")
     try:
@@ -236,7 +296,8 @@ async def add_feed_to_opml_async(url):
     except Exception as e:
         console.print(f"Could not save: {e}", style="red")
 
-async def remove_channel_ui():
+async def remove_channel_ui() -> None:
+    """Displays an interactive UI to remove a channel from the OPML file."""
     if not os.path.exists(OPML_FILE): return
     tree = ET.parse(OPML_FILE)
     root = tree.getroot()
@@ -263,43 +324,63 @@ async def remove_channel_ui():
 
 def show_help():
     help_text = """
-    YTRSS 2.0 - Keyboard Controls (InquirerPy)
+    [bold]YTRSS 2.0 - Help & Controls[/bold]
 
-    Navigation:
-    - Up/Down Arrows: Move cursor
-    - Type to search/filter (Automatic)
-    - Enter: Select item
+    [bold cyan]Navigation[/bold cyan]
+    • [bold]Up/Down[/bold]: Move selection
+    • [bold]Type[/bold]:   Search/Filter content automatically
+    • [bold]Enter[/bold]:  Select item or confirm action
 
-    Actions:
-    - Select a video to open the Action Menu:
-      * Play (starts QuickTube)
-      * Watch Later (saves to local playlist)
-      * Open in Browser
-      * Remove (if in playlist)
+    [bold cyan]Main Menu Shortcuts[/bold cyan]
+    • [bold]r[/bold]: Refresh feeds
+    • [bold]a[/bold]: Add new channel (RSS URL)
+    • [bold]m[/bold]: Mark all displayed videos as seen
+    • [bold]s[/bold]: Toggle Shorts visibility
+    • [bold],[/bold]: Open Settings
+    • [bold]q[/bold]: Quit
 
-    Main Menu:
-    - [r] Refresh feeds
-    - [a] Add channel
-    - [m] Mark all seen
-    - [s] Toggle Shorts
+    [bold cyan]Video Actions[/bold cyan]
+    Select a video to:
+    • Play (Stream or Local)
+    • Download
+    • Add to Watch Later / Playlists
+    • Open in Browser
+
+    [bold cyan]Configuration[/bold cyan]
+    Edit [bold]~/.config/ytrss/ytrss.conf[/bold] to customize:
+    • [bold]player[/bold]: Set video player (e.g., 'mpv', 'vlc', or 'auto')
+    • [bold]show_shorts[/bold]: True/False
+    • [bold]seasonal_themes[/bold]: True/False
     """
-    console.print(Panel(help_text, title="Help"))
+    console.print(Panel(help_text, title="Help", border_style="green"))
     input("Press Enter to continue...")
 
-async def fetch_feed(session, url):
+async def fetch_feed(session: aiohttp.ClientSession, url: str) -> Optional[str]:
+    """Fetches raw XML content from a URL asynchronously."""
     try:
         async with session.get(url, headers={"User-Agent": USER_AGENT}) as response:
             if response.status == 200: return await response.text()
     except: return None
 
-async def fetch_and_parse_feed(session, url):
+async def fetch_and_parse_feed(session: aiohttp.ClientSession, url: str) -> Optional[Any]:
+    """
+    Fetches and parses an RSS feed.
+    Runs feedparser in a separate thread to avoid blocking the asyncio loop.
+    """
     xml_data = await fetch_feed(session, url)
     if not xml_data: return None
     loop = asyncio.get_running_loop()
     # Run feedparser in a thread pool to avoid blocking the event loop
     return await loop.run_in_executor(None, feedparser.parse, xml_data)
 
-async def show_video_menu(videos, playlist_name=None):
+async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[str] = None) -> None:
+    """
+    Displays the interactive video list menu.
+    
+    Args:
+        videos (list): List of video dictionaries to display.
+        playlist_name (str, optional): Name of the current playlist (enables specific actions like remove).
+    """
     global SHOW_SHORTS
 
     if not SHOW_SHORTS:
@@ -346,14 +427,15 @@ async def show_video_menu(videos, playlist_name=None):
             # Icons and Styling (Single-width characters for perfect alignment)
             seen_mark = "*" if not v['is_seen'] else " " # Star for new, space for seen
             shorts_mark = "S" if v.get('is_shorts') else " "
+            dl_mark = "💾" if v.get('download_path') else " "
             duration = v.get('duration', '??:??')
             safe_title = clean_title(v['title'])
             
             # Channel truncation (16 chars for better fit)
             channel_name = v['channel'][:16]
             
-            # Grid Layout: [Status] Date | Dur | Shorts | Channel | Title
-            label = f"{seen_mark} {dt} │ {duration:>7} │ {shorts_mark} │ {channel_name:<16} │ {safe_title}"
+            # Grid Layout: [Status] Date | Dur | Shorts | DL | Channel | Title
+            label = f"{seen_mark} {dt} │ {duration:>7} │ {shorts_mark} │ {dl_mark} │ {channel_name:<16} │ {safe_title}"
             
             choices.append(Choice(value=i, name=label))
         
@@ -362,6 +444,11 @@ async def show_video_menu(videos, playlist_name=None):
             break
 
         choices.append(Choice(value=-1, name="[Go Back]"))
+        
+        if playlist_name and videos:
+             choices.append(Choice(value="download_all", name="[Download All Videos in List]"))
+             choices.append(Choice(value="clean_seen", name="[🗑️  Remove WATCHED Videos]"))
+             choices.append(Choice(value="clear_all", name="[🔥 Clear Playlist]"))
 
         title_suffix = "(Shorts hidden)" if not SHOW_SHORTS else ""
         idx = await ui_filter(
@@ -370,26 +457,97 @@ async def show_video_menu(videos, playlist_name=None):
             max_height="70%"
         )
 
+        if idx == "download_all":
+            # Bulk Download Logic
+            to_download = [v for v in videos if not v.get('download_path')]
+            if not to_download:
+                console.print("All videos in this list are already downloaded.", style="green")
+                await asyncio.sleep(1.5)
+                continue
+
+            confirm = await ui_select(
+                message=f"Download {len(to_download)} videos to {DOWNLOAD_PATH}?", 
+                choices=[Choice("yes", "Yes, start downloading"), Choice("no", "No, cancel")]
+            )
+            
+            if confirm == "yes":
+                for i, vid in enumerate(to_download, 1):
+                    console.print(f"Downloading {i}/{len(to_download)}: {vid['title']}...", style="blue")
+                    path = await download_video(vid['link'], DOWNLOAD_PATH, vid['id'])
+                    if path:
+                        save_download_path(vid['id'], path)
+                        vid['download_path'] = path
+                        console.print("Done.", style="green")
+                    else:
+                        console.print("Failed.", style="red")
+                console.print("Batch download complete.", style="bold green")
+                await asyncio.sleep(2.0)
+            continue
+        
+        elif idx == "clean_seen":
+            count = db.clear_playlist(playlist_name, only_seen=True)
+            if count > 0:
+                console.print(f"Removed {count} watched videos.", style="green")
+                # Update local list
+                videos = [v for v in videos if not v.get('is_seen')]
+            else:
+                console.print("No watched videos found in this playlist.", style="yellow")
+            await asyncio.sleep(1.5)
+            continue
+            
+        elif idx == "clear_all":
+            confirm = await ui_select(
+                message=f"Are you sure you want to EMPTY '{playlist_name}'?", 
+                choices=[Choice("no", "No, keep them"), Choice("yes", "YES, DELETE ALL")]
+            )
+            if confirm == "yes":
+                db.clear_playlist(playlist_name, only_seen=False)
+                videos = [] # Empty list
+                console.print("Playlist cleared.", style="green")
+                await asyncio.sleep(1.0)
+            continue
+
         if idx is None or idx == -1: break
         
         video = videos[idx]
         
         # Action Menu for selected video
-        action_choices = [
-            Choice("play", name="Play (QuickTube)"),
-            Choice("watch_later", name="Add to Watch Later"),
-        ]
+        action_choices = []
+        
+        # Priority: Play Local if available
+        if video.get('download_path'):
+             action_choices.append(Choice("play_local", name="▶️  Play Local File"))
+             action_choices.append(Choice("delete_local", name="🗑️  Delete Local File"))
+        
+        player_label = "Stream Video"
+        if PLAYER_CMD != "auto":
+             player_label += f" ({PLAYER_CMD})"
+        elif shutil.which("mpv"):
+             player_label += " (mpv)"
+        elif shutil.which("vlc"):
+             player_label += " (vlc)"
+
+        action_choices.append(Choice("play_stream", name=f"▶️  {player_label}"))
+        action_choices.append(Choice("play_audio", name="🎧  Stream Audio Only"))
+        
+        if not video.get('download_path'):
+            action_choices.append(Choice("download", name="💾  Download..."))
+
+        action_choices.append(Choice("watch_later", name="CLOCK  Add to Watch Later")) # Using text CLOCK placeholder if emoji fails, but standardizing on emoji in UI usually works. Let's stick to standard chars or consistent emoji.
+        # Actually, let's just use the previous style.
+        action_choices[-1] = Choice("watch_later", name="⏱️  Add to Watch Later")
+
         
         if cfg.get_bool('General', 'multi_playlists'):
-            action_choices.append(Choice("add_to", name="Add to Playlist..."))
+            action_choices.append(Choice("add_to", name="➕  Add to Playlist..."))
 
         action_choices.extend([
-            Choice("browser", name="Open in Browser"),
-            Choice("cancel", name="Cancel")
+            Choice("browser", name="🌐  Open in Browser"),
+            Choice("cancel", name="❌  Cancel")
         ])
         
         if playlist_name:
-            action_choices.insert(len(action_choices)-2, Choice("remove", name="Remove from Playlist"))
+            action_choices.insert(len(action_choices)-2, Choice("remove", name="🗑️  Remove from Playlist"))
 
         action = await ui_select(
             message=f"Action for: {clean_title(video['title'])}", 
@@ -399,15 +557,45 @@ async def show_video_menu(videos, playlist_name=None):
         if action is None or action == "cancel":
             continue
             
-        elif action == "play":
+        elif action == "play_local":
+            if play_local_file(video['download_path'], preferred_player=PLAYER_CMD):
+                mark_as_seen(video['id'], video['title'])
+                video['is_seen'] = True
+            else:
+                await asyncio.sleep(2.0)
+
+        elif action == "download":
+            # Using new interactive downloader
+            path = await select_and_download(video['link'], DOWNLOAD_PATH, video['id'])
+            if path:
+                save_download_path(video['id'], path)
+                video['download_path'] = path
+                console.print(f"Saved to: {path}", style="green")
+            else:
+                # If path is None, user might have cancelled or error occurred.
+                # select_and_download handles error printing.
+                pass
+            await asyncio.sleep(1.5)
+
+        elif action == "delete_local":
+            try:
+                os.remove(video['download_path'])
+                save_download_path(video['id'], None)
+                video['download_path'] = None
+                console.print("File deleted.", style="green")
+            except Exception as e:
+                console.print(f"Error deleting file: {e}", style="red")
+            await asyncio.sleep(1.0)
+
+        elif action == "play_stream":
             mark_as_seen(video['id'], video['title'])
             video['is_seen'] = True
-            console.print(f"Starting QuickTube for: {video['title']}", style="green")
-            try:
-                clipboard_copy(video['link'])
-                subprocess.run([QUICKTUBE_CMD])
-            except Exception as e:
-                console.print(f"Error launching: {e}", style="red")
+            play_stream(video['link'], audio_only=False, preferred_player=PLAYER_CMD)
+        
+        elif action == "play_audio":
+            mark_as_seen(video['id'], video['title'])
+            video['is_seen'] = True
+            play_stream(video['link'], audio_only=True, preferred_player=PLAYER_CMD)
         
         elif action == "watch_later":
             if add_to_playlist("Watch Later", video):
@@ -456,7 +644,8 @@ async def show_video_menu(videos, playlist_name=None):
                 console.print("Could not remove.", style="red")
             await asyncio.sleep(1.0)
 
-async def show_settings_menu():
+async def show_settings_menu() -> None:
+    """Displays the settings menu to toggle app preferences."""
     global SHOW_SHORTS
     while True:
         clear_screen()
@@ -483,11 +672,35 @@ async def show_settings_menu():
             new_val = not cfg.get_bool('General', 'multi_playlists')
             cfg.set_val('General', 'multi_playlists', new_val)
 
-async def main_async():
+async def main_async() -> None:
+    """
+    Main application loop.
+    Handles startup checks, feed fetching, dashboard rendering, and user input.
+    """
     global duration_cache, SHOW_SHORTS
     db.connect()
     duration_cache = get_cached_metadata()
     
+    # Check dependencies at startup
+    missing = check_dependencies()
+    if missing:
+        clear_screen()
+        console.print(Panel(f"[bold yellow]Warning: Missing tools: {', '.join(missing)}[/bold yellow]", title="System Check"))
+        
+        if "yt-dlp" in missing:
+            choice = await ui_select(
+                message="yt-dlp is required for downloading and streaming. Install it now?",
+                choices=[Choice("yes", "Yes, install it"), Choice("no", "No, I'll fix it later")]
+            )
+            if choice == "yes":
+                install_ytdlp()
+                await asyncio.sleep(2)
+        
+        if "mpv/vlc" in missing or "ffmpeg" in missing:
+            console.print("\n[bold cyan]Note:[/bold cyan] For best experience, please install [bold]mpv[/bold] and [bold]ffmpeg[/bold] using your package manager.")
+            console.print("Example: [green]sudo apt install mpv ffmpeg[/green]\n")
+            await asyncio.sleep(3)
+
     while True:
         feeds = load_feeds_from_opml()
         seen_ids = get_seen_videos()
@@ -572,35 +785,83 @@ async def main_async():
             day = datetime.now().day
             
             is_christmas = use_themes and month == 12 and (20 <= day <= 26)
-            is_newyear = use_themes and ((month == 12 and day >= 30) or (month == 1 and day <= 2))
+            is_newyear = use_themes and ((month == 12 and day >= 27) or (month == 1 and day <= 2))
 
+            subtitle = None
             if is_christmas:
-                title = "[bold red]❄️  YTRSS CHRISTMAS EDITION  ❄️[/bold red]"
+                header = "[bold red]*  YTRSS CHRISTMAS EDITION  *[/bold red]"
                 border = "green"
+                subtitle = "[bold white]*  *[/bold white]"
                 stats_text = (
                     f"[bold white]New Videos:[/bold white] [bold red]{unread_total}[/bold red]  │  "
                     f"[bold white]Watch Later:[/bold white] [bold green]{wl_count}[/bold green]  │  "
                     f"[bold white]Shorts:[/bold white] [bold yellow]{shorts_status}[/bold yellow]"
                 )
-            elif is_newyear:
-                title = "[bold bright_white]✧･ﾟ:* [/bold bright_white][bold gold1]HAPPY NEW YEAR[/bold gold1][bold bright_white] *:･ﾟ✧[/bold bright_white]"
-                border = "yellow"
-                stats_text = (
-                    f"[grey50]｡ﾟ•[/grey50] [bold white]Videos:[/bold white] [bold gold1]{unread_total}[/bold gold1] [grey50]•[/grey50]  "
-                    f"[grey50]•[/grey50] [bold white]Saved:[/bold white] [bold gold1]{wl_count}[/bold gold1] [grey50]•[/grey50]  "
-                    f"[grey50]•[/grey50] [bold white]Shorts:[/bold white] [bold gold1]{shorts_status}[/bold gold1] [grey50]•ﾟ｡[/grey50]"
+                panel_content = Group(
+                    Align.center(header),
+                    Align.center(stats_text)
                 )
+            elif is_newyear:
+                # Countdown Logic
+                target = datetime(2026, 1, 1, 0, 0, 0)
+                now_dt = datetime.now()
+                if now_dt.year >= 2026:
+                     countdown_str = "Happy New Year!"
+                else:
+                    diff = target - now_dt
+                    days = diff.days
+                    hours, remainder = divmod(diff.seconds, 3600)
+                    minutes, _ = divmod(remainder, 60)
+                    countdown_str = f"{days}d {hours}h {minutes}m"
+
+                # Simplified header without ambiguous width characters
+                header = "[bold bright_white]✨ [/bold bright_white][bold gold1]HAPPY NEW YEAR[/bold gold1][bold bright_white] ✨[/bold bright_white]"
+                border = "yellow"
+                val_style = "[bold red]"
+                
+                # Clean stats line without problematic decorators
+                stats_line = (
+                    f"[grey50]•[/grey50] [bold white]Videos:[/bold white] {val_style}{unread_total}[/] [grey50]•[/grey50]  "
+                    f"[grey50]•[/grey50] [bold white]Saved:[/bold white] {val_style}{wl_count}[/] [grey50]•[/grey50]  "
+                    f"[grey50]•[/grey50] [bold white]Shorts:[/bold white] {val_style}{shorts_status}[/] [grey50]•[/grey50]"
+                )
+                countdown_line = f"[bold gold1]⏳ 2026 in: {countdown_str}[/bold gold1]"
+                
+                # Use Group and Align to center everything robustly
+                
+                panel_content = Group(
+                
+                    Align.center(header),
+                
+                    Align.center(stats_line),
+                
+                    Align.center(countdown_line)
+                
+                )
+                
+                subtitle = "[bold grey50]Stardust Edition[/bold grey50]"
+                
             else:
-                title = "[bold white]YTRSS 2.0[/bold white]"
+                header = "[bold white]YTRSS 2.0[/bold white]"
                 border = "blue"
                 stats_text = (
                     f"New Videos: [bold blue]{unread_total}[/bold blue]  │  "
                     f"Watch Later: [bold blue]{wl_count}[/bold blue]  │  "
                     f"Shorts: [bold blue]{shorts_status}[/bold blue]"
                 )
+                panel_content = Group(
+                    Align.center(header),
+                    Align.center(stats_text)
+                )
 
-            console.print(Panel(stats_text, title=title, border_style=border, expand=False, padding=(0, 1) if not is_newyear else (1, 2)))
-            
+            console.print(Panel(
+                panel_content, 
+                subtitle=subtitle, 
+                border_style=border, 
+                expand=False, 
+                padding=(0, 1) if not is_newyear else (0, 2)
+            ))
+
             choices = []
             choices.append(Separator(""))
 
@@ -608,7 +869,7 @@ async def main_async():
             if is_christmas:
                 browse_title = "  ─ [ BROWSE ] ❄️ * ❄️ ──────────────────────"
             elif is_newyear:
-                browse_title = "  ─ [ BROWSE ] ✧･ﾟ:* ───────────────────────"
+                browse_title = "  ─ [ BROWSE ] ────────────────────────────"
             else:
                 browse_title = "  ─ [ BROWSE ] ────────────────────────────"
             
@@ -635,10 +896,9 @@ async def main_async():
                 if is_christmas:
                     ch_title = "  ─ [ CHANNELS ] ❄️ * ❄️ ────────────────────"
                 elif is_newyear:
-                    ch_title = "  ─ [ CHANNELS ] ✧･ﾟ:* ─────────────────────"
+                    ch_title = "  ─ [ CHANNELS ] ──────────────────────────"
                 else:
                     ch_title = "  ─ [ CHANNELS ] ──────────────────────────"
-                
                 choices.append(Separator(ch_title))
                 choices.append(Separator(""))
                 
@@ -655,7 +915,7 @@ async def main_async():
             if is_christmas:
                 sys_title = "  ─ [ SYSTEM ] ❄️ * ❄️ ──────────────────────"
             elif is_newyear:
-                sys_title = "  ─ [ SYSTEM ] ✧･ﾟ:* ───────────────────────"
+                sys_title = "  ─ [ SYSTEM ] ────────────────────────────"
             else:
                 sys_title = "  ─ [ SYSTEM ] ────────────────────────────"
             
@@ -663,6 +923,8 @@ async def main_async():
             choices.append(Separator(""))
             
             choices.append(Choice("refresh", "   [ R ] Refresh feeds"))
+            choices.append(Choice("stats",   "   [ I ] Insights / Statistics"))
+            choices.append(Choice("update_tools", "   [ U ] Update yt-dlp"))
             choices.append(Choice("settings", "   [ , ] Settings"))
             
             if multi_on:
@@ -677,14 +939,30 @@ async def main_async():
             selection = await ui_filter(
                 message="YTRSS Main Menu", 
                 choices=choices,
-                max_height="90%"
+                max_height="70%"
             )
-
             if selection is None or selection == "quit": 
                 clear_screen()
                 sys.exit()
             
             if selection == "help": show_help()
+            elif selection == "stats":
+                current_year = None
+                while True:
+                    if current_year:
+                        stats_data = db.get_year_stats(current_year)
+                    else:
+                        stats_data = db.get_stats_data()
+                    
+                    result = await show_stats_ui(stats_data, duration_to_seconds, seconds_to_readable, year=current_year)
+                    
+                    if result == "back":
+                        break
+                    elif result == "year_2025":
+                        current_year = "2025"
+            elif selection == "update_tools":
+                install_ytdlp()
+                await asyncio.sleep(2.0)
             elif selection == "settings": 
                 await show_settings_menu()
                 continue

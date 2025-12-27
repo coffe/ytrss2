@@ -1,0 +1,132 @@
+import platform
+import subprocess
+import shutil
+import os
+import unicodedata
+import sys
+from rich.console import Console
+
+console = Console()
+
+def clipboard_copy(text):
+    """Cross-platform clipboard copy."""
+    system = platform.system()
+    try:
+        if system == "Windows":
+            # PowerShell Set-Clipboard
+            # Escape single quotes for PowerShell
+            safe_text = text.replace("'", "''")
+            cmd = ["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value '{safe_text}'"]
+            subprocess.run(cmd, check=False)
+        elif system == "Darwin":
+             p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+             p.communicate(input=text.encode('utf-8'))
+        else:
+             # Linux
+             if shutil.which("wl-copy"):
+                 p = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE)
+                 p.communicate(input=text.encode('utf-8'))
+             elif shutil.which("xclip"):
+                 p = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
+                 p.communicate(input=text.encode('utf-8'))
+    except Exception as e:
+        console.print(f"Clipboard error: {e}", style="red")
+
+def clear_screen():
+    os.system('cls' if platform.system() == 'Windows' else 'clear')
+
+def clean_title(text):
+    """Removes emojis and other characters that cause terminal rendering glitches."""
+    if not text: return ""
+    text = unicodedata.normalize('NFKC', text)
+    cleaned = []
+    for char in text:
+        if ord(char) > 0xFFFF: continue
+        category = unicodedata.category(char)
+        if category.startswith(('C', 'S')):
+            if char in "$-+/%": cleaned.append(char)
+            else: cleaned.append(" ")
+        else:
+            cleaned.append(char)
+    text = "".join(cleaned)
+    return " ".join(text.split())
+
+def get_resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
+def duration_to_seconds(duration_str):
+    """Converts HH:MM:SS or MM:SS to total seconds."""
+    if not duration_str or duration_str == "??:??": return 0
+    try:
+        parts = duration_str.split(':')
+        if len(parts) == 3: # HH:MM:SS
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        elif len(parts) == 2: # MM:SS
+            return int(parts[0]) * 60 + int(parts[1])
+        elif len(parts) == 1: # SS
+            return int(parts[0])
+    except: return 0
+    return 0
+
+def seconds_to_readable(seconds):
+    """Converts seconds to a readable string like '2h 15m' or '45m 10s'."""
+    if seconds <= 0: return "0m"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    
+    parts = []
+    if h > 0: parts.append(f"{h}h")
+    if m > 0: parts.append(f"{m}m")
+    if h == 0 and s > 0: parts.append(f"{s}s")
+    
+    return " ".join(parts) if parts else "0m"
+
+import asyncio
+
+async def download_video(url, output_dir, video_id):
+    """Downloads a video using yt-dlp and returns the absolute file path."""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Template: Title [id].ext
+    output_template = os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s")
+    
+    # Get filename first (simulation)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "yt-dlp", "--get-filename", "-o", output_template, url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            console.print(f"Error getting filename: {stderr.decode()}", style="red")
+            return None
+        
+        filename = stdout.decode().strip()
+        
+        # Download
+        console.print(f"Downloading to: {filename}", style="blue")
+        proc_dl = await asyncio.create_subprocess_exec(
+            "yt-dlp", "-o", output_template, url,
+            stdout=asyncio.subprocess.PIPE,  # Capture output to avoid cluttering UI too much
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        # We could parse stdout to show progress bar here in the future
+        _, stderr_dl = await proc_dl.communicate()
+        
+        if proc_dl.returncode == 0:
+            return os.path.abspath(filename)
+        else:
+            console.print(f"Download failed: {stderr_dl.decode()}", style="red")
+            return None
+
+    except Exception as e:
+        console.print(f"Exception during download: {e}", style="red")
+        return None
+

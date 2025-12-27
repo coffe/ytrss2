@@ -1,0 +1,7 @@
+#!/bin/bash
+# Run YT-RSS Discovery with the correct venv and working directory
+PROJECT_DIR="/home/coffe/ai/coding/ytRss"
+
+# We must switch to the project directory for the database and opml file to be found
+cd "$PROJECT_DIR"
+"$PROJECT_DIR/.venv/bin/python" ytrss.py "$@"

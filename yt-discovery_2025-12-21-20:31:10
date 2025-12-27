@@ -1,0 +1,7 @@
+#!/bin/bash
+# Kör YT-RSS Discovery med rätt venv och arbetskatalog
+PROJECT_DIR="/home/coffe/ai/coding/ytRss"
+
+# Vi måste byta till projektkatalogen för att databasen och opml-filen ska hittas
+cd "$PROJECT_DIR"
+"$PROJECT_DIR/.venv/bin/python" ytrss.py "$@"

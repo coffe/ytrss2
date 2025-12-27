@@ -17,6 +17,8 @@ class ConfigManager:
         self.config['General'].setdefault('show_shorts', 'True')
         self.config['General'].setdefault('seasonal_themes', 'True')
         self.config['General'].setdefault('multi_playlists', 'False')
+        self.config['General'].setdefault('player', 'auto')
+        self.config['General'].setdefault('download_path', os.path.expanduser('~/Downloads/ytrss'))
 
     def save(self):
         os.makedirs(os.path.dirname(self.conf_file), exist_ok=True)
@@ -25,6 +27,9 @@ class ConfigManager:
 
     def get_bool(self, section, key):
         return self.config.getboolean(section, key)
+    
+    def get_str(self, section, key):
+        return self.config.get(section, key)
 
     def set_val(self, section, key, value):
         self.config[section][key] = str(value)

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<opml version="1.0">
+    <head>
+        <title>YouTube Subscriptions</title>
+    </head>
+    <body>
+        <outline text="Marlow Digs" title="Marlow Digs" type="rss" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCXTqU3m3XZx_rWV_XaPiDcg" /><outline text="Mystery Quest" title="Mystery Quest" type="rss" xmlUrl="https://www.youtube.com/feeds/videos.xml?channel_id=UCd5_xAWJ4yX6NZ5cZaccqPw" /></body>
+</opml>
