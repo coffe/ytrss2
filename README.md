@@ -66,6 +66,10 @@ YTRSS 2.0 includes built-in seasonal themes to brighten up your terminal!
 *   **🎄 Christmas Edition:** Active Dec 20th - 26th. Features a festive red/green design with holiday icons.
 *   **🎆 New Year's Stardust:** Active Dec 30th - Jan 2nd. A glittering gold and white theme to ring in the new year.
 
+![YTRSS New Year Theme](images/newyear.png)
+
+**Note:** The New Year's theme is currently active! If you prefer the standard look, you can easily toggle themes off in the **Settings** menu.
+
 *Don't like themes?* You can easily toggle them off in the **Settings** menu.
 
 ## ⚙️ Configuration
