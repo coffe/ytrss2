@@ -344,6 +344,7 @@ def show_help():
     • Play (Stream or Local)
     • Download
     • Add to Watch Later / Playlists
+    • Copy Link to Clipboard
     • Open in Browser
 
     [bold cyan]Configuration[/bold cyan]
@@ -542,6 +543,7 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
             action_choices.append(Choice("add_to", name="➕  Add to Playlist..."))
 
         action_choices.extend([
+            Choice("copy_link", name="📋  Copy Link"),
             Choice("browser", name="🌐  Open in Browser"),
             Choice("cancel", name="❌  Cancel")
         ])
@@ -630,6 +632,11 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
                 else:
                     console.print("Failed to add.", style="red")
                 await asyncio.sleep(1.0)
+
+        elif action == "copy_link":
+            clipboard_copy(video['link'])
+            console.print("Link copied to clipboard!", style="green")
+            await asyncio.sleep(1.0)
 
         elif action == "browser":
             webbrowser.open(video['link'])

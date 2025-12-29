@@ -8,29 +8,14 @@ import urllib.request
 import stat
 from rich.console import Console
 
+import pyperclip
+
 console = Console()
 
 def clipboard_copy(text):
-    """Cross-platform clipboard copy."""
-    system = platform.system()
+    """Cross-platform clipboard copy using pyperclip."""
     try:
-        if system == "Windows":
-            # PowerShell Set-Clipboard
-            # Escape single quotes for PowerShell
-            safe_text = text.replace("'", "''")
-            cmd = ["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value '{safe_text}'"]
-            subprocess.run(cmd, check=False)
-        elif system == "Darwin":
-             p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-             p.communicate(input=text.encode('utf-8'))
-        else:
-             # Linux
-             if shutil.which("wl-copy"):
-                 p = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE)
-                 p.communicate(input=text.encode('utf-8'))
-             elif shutil.which("xclip"):
-                 p = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
-                 p.communicate(input=text.encode('utf-8'))
+        pyperclip.copy(text)
     except Exception as e:
         console.print(f"Clipboard error: {e}", style="red")
 

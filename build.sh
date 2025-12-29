@@ -36,6 +36,7 @@ pip install pyinstaller --quiet
 
 # Build
 echo "🔨 Compiling binary with PyInstaller..."
+echo "ℹ️  Note: Warnings about 'msvcrt' are normal on Linux and can be safely ignored."
 # --log-level=WARN keeps the output clean
 # --onefile bundles everything
 # --add-data includes KEYS.md
