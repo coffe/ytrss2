@@ -1,11 +1,19 @@
 import asyncio
 import json
 import os
+import shutil
 from rich.console import Console
 from src.ui import ui_select, Choice
 from src.utils import clean_title
+from src.logger import get_logger
+from src.config import ConfigManager
 
 console = Console()
+logger = get_logger()
+
+# Load config
+CONF_FILE = os.path.expanduser("~/.config/ytrss/ytrss.conf")
+cfg = ConfigManager(CONF_FILE)
 
 # Helper to format file size
 def format_size(size_bytes):
@@ -14,10 +22,20 @@ def format_size(size_bytes):
 
 async def get_video_formats(url):
     """Fetches available formats using yt-dlp -J."""
+    cfg.config.read(CONF_FILE)
+    cookie_browser = cfg.get_str('General', 'cookie_browser')
+    
     console.print("Fetching video information...", style="dim")
     try:
+        from src.utils import get_ytdlp_base_cmd
+        cmd = get_ytdlp_base_cmd(cookie_browser)
+        cmd.append("-J")
+        cmd.append(url)
+        
+        logger.debug(f"Fetching formats: {' '.join(cmd)}")
+        
         proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", "-J", url,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -25,7 +43,8 @@ async def get_video_formats(url):
         
         if proc.returncode != 0:
             console.print(f"Error fetching info: {stderr.decode()}", style="red")
-            return None
+            logger.error(f"yt-dlp JSON error: {stderr.decode()}")
+            return None, None
 
         data = json.loads(stdout.decode())
         formats = data.get("formats", [])
@@ -83,10 +102,15 @@ async def get_video_formats(url):
 
     except Exception as e:
         console.print(f"Error parsing formats: {e}", style="red")
+        logger.error(f"Exception parsing formats: {e}")
         return None, None
 
 async def select_and_download(url, download_path, video_id):
     """Interactive download flow similar to QuickTube."""
+    
+    # Refresh config
+    cfg.config.read(CONF_FILE)
+    cookie_browser = cfg.get_str('General', 'cookie_browser')
     
     formats, title = await get_video_formats(url)
     if not formats:
@@ -94,6 +118,12 @@ async def select_and_download(url, download_path, video_id):
 
     choices = []
     
+    # Check for ffmpeg presence
+    has_ffmpeg = shutil.which("ffmpeg") is not None
+    if not has_ffmpeg:
+        console.print("Warning: ffmpeg not found. Merging video+audio might fail.", style="yellow")
+        logger.warning("ffmpeg not found! Download might fail for high quality streams.")
+
     # 1. Video Options
     choices.append(Choice("separator_video", "--- Video ---"))
     for f in formats:
@@ -133,7 +163,9 @@ async def select_and_download(url, download_path, video_id):
     # Safe filename template
     output_template = os.path.join(download_path, "%(title)s [%(id)s].%(ext)s")
     
-    cmd = ["yt-dlp", "--no-warnings", "--force-overwrites", "--embed-metadata", "--embed-thumbnail"]
+    from src.utils import get_ytdlp_base_cmd
+    cmd = get_ytdlp_base_cmd(cookie_browser)
+    cmd.extend(["--force-overwrites", "--embed-metadata", "--embed-thumbnail"])
     
     if selection["type"] == "audio":
         console.print("Downloading Audio...", style="blue")
@@ -147,23 +179,47 @@ async def select_and_download(url, download_path, video_id):
         h = selection["height"]
         console.print(f"Downloading Video ({h}p)...", style="blue")
         # Format selection: Best video with this height + best audio, merge to mp4/mkv
-        cmd.extend([
-            "-f", f"bestvideo[height={h}]+bestaudio/best[height={h}]/best",
-            "--merge-output-format", "mp4",
-            "-o", output_template
-        ])
+        
+        if has_ffmpeg:
+            cmd.extend([
+                "-f", f"bestvideo[height={h}]+bestaudio/best[height={h}]/best",
+                "--merge-output-format", "mp4"
+            ])
+        else:
+            # Fallback if no ffmpeg: just grab best format that contains both or fallback to best
+            logger.warning("No ffmpeg: downloading single file 'best' format, ignoring specific resolution request to be safe.")
+            cmd.extend(["-f", "best"])
+            
+        cmd.extend(["-o", output_template])
 
     cmd.append(url)
+    
+    # Log command
+    logger.info(f"Download command: {' '.join(cmd)}")
 
     # Execute
     # We allow stdout to pass through so user sees progress bar from yt-dlp
     try:
         # Get filename first for database saving
+        logger.debug("Resolving filename...")
+        
+        # Need to include cookies here too for filename resolution if it requires auth
+        fname_cmd = ["yt-dlp", "--get-filename", "-o", output_template]
+        if cookie_browser and cookie_browser.lower() != "none":
+            fname_cmd.extend(["--cookies-from-browser", cookie_browser])
+        fname_cmd.append(url)
+        
         filename_proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", "--get-filename", "-o", output_template, url,
+            *fname_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        fname_out, _ = await filename_proc.communicate()
+        fname_out, fname_err = await filename_proc.communicate()
+        
+        if filename_proc.returncode != 0:
+             logger.error(f"Filename resolution failed: {fname_err.decode()}")
+             console.print("Could not resolve filename.", style="red")
+             return None
+
         final_filename = fname_out.decode().strip()
         # If audio, extension might change to .opus, but let's trust get-filename or adjust
         if selection["type"] == "audio":
@@ -187,8 +243,10 @@ async def select_and_download(url, download_path, video_id):
             return final_filename
         else:
             console.print("Download failed.", style="red")
+            logger.error("Download process exited with error.")
             return None
 
     except Exception as e:
         console.print(f"Error: {e}", style="red")
+        logger.error(f"Download exception: {e}")
         return None

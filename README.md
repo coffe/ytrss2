@@ -12,6 +12,8 @@ YTRSS 2.0 allows you to browse, organize, and watch your YouTube subscriptions w
 *   **⚡ Blazing Fast:** Asynchronous fetching of 50+ feeds in seconds.
 *   **🧘 Distraction Free:** Filter out Shorts with a single keystroke `[ S ]` or via Settings.
 *   **📂 Organized:** Clean TUI with visual separation between content and tools.
+*   **🛡️ Stable Streaming:** Implements the "Golden Trio" (IPv4 enforcement, JS runtime integration, and Browser Cookies) to bypass modern YouTube anti-bot protections and 403 errors.
+*   **⏬ Smart Downloader:** Interactive format selection (Resolution, FPS, Size) with automatic merging via ffmpeg.
 *   **💾 Local & Private:** No Google Account needed. Data stored locally.
 *   **🛠️ Standalone:** Builds into a single binary with zero runtime dependencies.
 

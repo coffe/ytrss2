@@ -19,6 +19,7 @@ class ConfigManager:
         self.config['General'].setdefault('multi_playlists', 'False')
         self.config['General'].setdefault('player', 'auto')
         self.config['General'].setdefault('download_path', os.path.expanduser('~/Downloads/ytrss'))
+        self.config['General'].setdefault('cookie_browser', 'none')
 
     def save(self):
         os.makedirs(os.path.dirname(self.conf_file), exist_ok=True)

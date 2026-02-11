@@ -132,6 +132,31 @@ def check_dependencies():
         
     return missing
 
+def get_js_engine():
+    """Find a supported JavaScript engine (Node, QuickJS, Deno)."""
+    for engine in ["node", "quickjs", "deno"]:
+        if shutil.which(engine):
+            return engine
+    return None
+
+def get_ytdlp_base_cmd(cookie_browser=None):
+    """Constructs the base command for yt-dlp with essential stability flags."""
+    cmd = ["yt-dlp", "--no-warnings", "--force-ipv4"]
+    
+    # Network Stability
+    # (force-ipv4 is already added above)
+
+    # JS Engine (Fixes throttling/signatures)
+    js_engine = get_js_engine()
+    if js_engine:
+        cmd.extend(["--js-runtime", js_engine])
+
+    # Auth
+    if cookie_browser and cookie_browser.lower() != "none":
+        cmd.extend(["--cookies-from-browser", cookie_browser])
+    
+    return cmd
+
 def install_ytdlp():
     """Downloads and installs the latest yt-dlp binary."""
     system = platform.system()

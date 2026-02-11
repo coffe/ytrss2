@@ -21,6 +21,7 @@ from src.downloader import select_and_download
 from src.player import play_stream, play_local_file
 from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, seconds_to_readable, download_video, check_dependencies, install_ytdlp
 from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer, show_stats_ui, Group, Align
+from src.logger import setup_logger, get_logger
 from datetime import datetime
 
 # Reduce Esc key delay (prevents lag when pressing Esc)
@@ -33,11 +34,13 @@ CONFIG_DIR = os.path.expanduser("~/.config/ytrss")
 OPML_FILE = os.path.join(CONFIG_DIR, "ytRss.opml")
 DB_FILE = os.path.join(CONFIG_DIR, "ytrss.db")
 CONF_FILE = os.path.join(CONFIG_DIR, "ytrss.conf")
+LOG_FILE = os.path.join(CONFIG_DIR, "ytrss.log")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
 
 # Create config directory if it doesn't exist
 os.makedirs(CONFIG_DIR, exist_ok=True)
 cfg = ConfigManager(CONF_FILE)
+logger = setup_logger(LOG_FILE)
 
 # Global state
 duration_cache = {}
@@ -202,12 +205,18 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
                         duration_cache[video_id] = duration
                         save_metadata(video_id, duration)
                         return duration
-    except: pass
+    except Exception as e:
+        logger.debug(f"HTML fetch failed for {video_id}: {e}")
 
     # Fallback to yt-dlp
     try:
+        cookie_browser = cfg.get_str('General', 'cookie_browser')
+        from src.utils import get_ytdlp_base_cmd
+        ytdlp_cmd = get_ytdlp_base_cmd(cookie_browser)
+        ytdlp_cmd.extend(["--get-duration", video_url])
+        
         proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", "--get-duration", video_url,
+            *ytdlp_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL
         )
@@ -219,7 +228,8 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
                 duration_cache[video_id] = duration
                 save_metadata(video_id, duration)
                 return duration
-    except: pass
+    except Exception as e:
+        logger.error(f"yt-dlp duration fetch failed for {video_id}: {e}")
     return "??:??"
 
 def load_feeds_from_opml() -> List[str]:
@@ -232,19 +242,26 @@ def load_feeds_from_opml() -> List[str]:
         for outline in root.findall(".//outline"):
             url = outline.get('xmlUrl')
             if url: urls.append(url)
-    except: pass
+    except Exception as e:
+        logger.error(f"Failed to load OPML file: {e}")
     return urls
 
-async def resolve_rss_url_async(url: str) -> str:
+async def resolve_rss_url_async(url: str) -> Tuple[str, Optional[str]]:
     """
     Attempts to resolve a generic YouTube channel URL into an RSS feed URL.
     Uses yt-dlp to find the underlying channel ID if necessary.
+    Returns a tuple of (rss_url, channel_title).
     """
-    if "xml" in url or "feed" in url: return url
-    console.print(f"Resolving channel ID for: {url} ...", style="dim")
+    if "xml" in url or "feed" in url: return url, None
+    console.print(f"Resolving channel info for: {url} ...", style="dim")
     try:
+        from src.utils import get_ytdlp_base_cmd
+        cookie_browser = cfg.get_str('General', 'cookie_browser')
+        ytdlp_cmd = get_ytdlp_base_cmd(cookie_browser)
+        ytdlp_cmd.extend(["--dump-json", "--flat-playlist", "--playlist-items", "1", url])
+        
         proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", "--dump-json", "--flat-playlist", "--playlist-items", "1", url,
+            *ytdlp_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -252,27 +269,45 @@ async def resolve_rss_url_async(url: str) -> str:
         if proc.returncode == 0 and stdout:
             data = json.loads(stdout.decode().splitlines()[0])
             channel_id = data.get("playlist_channel_id") or data.get("channel_id") or data.get("playlist_id")
+            channel_title = data.get("playlist_uploader") or data.get("uploader") or data.get("channel")
             if channel_id and channel_id.startswith("UC"):
-                return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    except: pass
-    return url
+                rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+                return rss_url, channel_title
+    except Exception as e:
+        logger.error(f"Failed to resolve RSS URL for {url}: {e}")
+    return url, None
 
 async def add_feed_to_opml_async(url: str) -> None:
     """
     Verifies a URL and adds it to the OPML subscription list if valid.
     Checks for duplicates before adding.
     """
-    url = await resolve_rss_url_async(url)
+    url, fallback_title = await resolve_rss_url_async(url)
     console.print(f"Verifying link: {url} ...", style="dim")
+    
+    channel_title = fallback_title
     try:
         loop = asyncio.get_running_loop()
         d = await loop.run_in_executor(None, lambda: feedparser.parse(url, agent=USER_AGENT))
         
         if not d.feed.get('title') and not d.entries:
-             console.print("Error: Not a valid RSS feed.", style="red")
-             return
-        channel_title = d.feed.get('title', 'Unknown Channel')
-    except: return
+            if not fallback_title:
+                console.print("Error: Not a valid RSS feed.", style="red")
+                logger.warning(f"Invalid RSS feed tried: {url}")
+                return
+            else:
+                console.print("Note: RSS feed returned no data (YouTube 404), but channel identified.", style="yellow")
+        else:
+            channel_title = d.feed.get('title', fallback_title or 'Unknown Channel')
+    except Exception as e:
+        if not fallback_title:
+            console.print(f"Error parsing feed: {e}", style="red")
+            logger.error(f"Error parsing feed during add: {e}")
+            return
+        else:
+            console.print(f"Warning: RSS parsing failed, using info from yt-dlp.", style="yellow")
+
+    if not channel_title: channel_title = "Unknown Channel"
 
     try:
         if os.path.exists(OPML_FILE):
@@ -293,8 +328,10 @@ async def add_feed_to_opml_async(url: str) -> None:
         ET.SubElement(body, 'outline', {'text': channel_title, 'title': channel_title, 'type': 'rss', 'xmlUrl': url})
         tree.write(OPML_FILE, encoding='UTF-8', xml_declaration=True)
         console.print(f"Added: {channel_title}", style="green")
+        logger.info(f"Added channel: {channel_title} ({url})")
     except Exception as e:
         console.print(f"Could not save: {e}", style="red")
+        logger.error(f"Could not save OPML: {e}")
 
 async def remove_channel_ui() -> None:
     """Displays an interactive UI to remove a channel from the OPML file."""
@@ -361,7 +398,11 @@ async def fetch_feed(session: aiohttp.ClientSession, url: str) -> Optional[str]:
     try:
         async with session.get(url, headers={"User-Agent": USER_AGENT}) as response:
             if response.status == 200: return await response.text()
-    except: return None
+            else:
+                logger.warning(f"Fetch failed for {url}: Status {response.status}")
+    except Exception as e:
+        logger.error(f"Exception fetching {url}: {e}")
+        return None
 
 async def fetch_and_parse_feed(session: aiohttp.ClientSession, url: str) -> Optional[Any]:
     """
@@ -654,12 +695,18 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
 async def show_settings_menu() -> None:
     """Displays the settings menu to toggle app preferences."""
     global SHOW_SHORTS
+    
+    browsers = ["none", "firefox", "chrome", "chromium", "brave", "opera", "edge", "vivaldi"]
+    
     while True:
         clear_screen()
+        current_browser = cfg.get_str('General', 'cookie_browser')
+        
         choices = [
             Choice("toggle_shorts", f"Show Shorts: {'[ON]' if cfg.get_bool('General', 'show_shorts') else '[OFF]'}"),
             Choice("toggle_themes", f"Seasonal Themes: {'[ON]' if cfg.get_bool('General', 'seasonal_themes') else '[OFF]'}"),
             Choice("toggle_multi",  f"Enable Multi-Playlists (WIP): {'[ON]' if cfg.get_bool('General', 'multi_playlists') else '[OFF]'}"),
+            Choice("cycle_browser", f"Cookie Source: [{current_browser.upper()}]"),
             Separator(""),
             Choice("back", "[ Go Back ]")
         ]
@@ -678,6 +725,15 @@ async def show_settings_menu() -> None:
         elif selection == "toggle_multi":
             new_val = not cfg.get_bool('General', 'multi_playlists')
             cfg.set_val('General', 'multi_playlists', new_val)
+        elif selection == "cycle_browser":
+            # Cycle through browsers
+            try:
+                idx = browsers.index(current_browser)
+                next_browser = browsers[(idx + 1) % len(browsers)]
+            except ValueError:
+                next_browser = "none"
+            
+            cfg.set_val('General', 'cookie_browser', next_browser)
 
 async def main_async() -> None:
     """
@@ -763,7 +819,8 @@ async def main_async() -> None:
                         ch_videos.append(v)
                         all_videos_flat.append(v)
                 all_videos_by_channel[ch_name] = ch_videos
-            except: pass
+            except Exception as e:
+                logger.error(f"Error processing feed results: {e}")
         
         all_videos_flat.sort(key=lambda x: x['published'], reverse=True)
 
