@@ -45,6 +45,25 @@ def get_resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
+def get_clean_env():
+    """
+    Returns a copy of os.environ with PyInstaller-added LD_LIBRARY_PATH removed.
+    This is necessary when launching system binaries (like mpv or vlc) from a 
+    frozen PyInstaller executable, as the bundled libraries might conflict 
+    with system ones.
+    """
+    if not getattr(sys, 'frozen', False):
+        return os.environ.copy()
+
+    env = os.environ.copy()
+    # If running as a PyInstaller bundle, LD_LIBRARY_PATH is modified.
+    # Restore the original if it exists, otherwise remove it.
+    if 'LD_LIBRARY_PATH_ORIG' in env:
+        env['LD_LIBRARY_PATH'] = env.pop('LD_LIBRARY_PATH_ORIG')
+    else:
+        env.pop('LD_LIBRARY_PATH', None)
+    return env
+
 def duration_to_seconds(duration_str):
     """Converts HH:MM:SS or MM:SS to total seconds."""
     if not duration_str or duration_str == "??:??": return 0
@@ -87,7 +106,8 @@ async def download_video(url, output_dir, video_id):
         proc = await asyncio.create_subprocess_exec(
             "yt-dlp", "--get-filename", "-o", output_template, url,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=get_clean_env()
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -101,7 +121,8 @@ async def download_video(url, output_dir, video_id):
         proc_dl = await asyncio.create_subprocess_exec(
             "yt-dlp", "-o", output_template, url,
             stdout=asyncio.subprocess.PIPE,  # Capture output to avoid cluttering UI too much
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=get_clean_env()
         )
         
         # We could parse stdout to show progress bar here in the future

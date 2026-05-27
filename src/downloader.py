@@ -4,7 +4,7 @@ import os
 import shutil
 from rich.console import Console
 from src.ui import ui_select, Choice
-from src.utils import clean_title
+from src.utils import clean_title, get_clean_env
 from src.logger import get_logger
 from src.config import ConfigManager
 
@@ -37,7 +37,8 @@ async def get_video_formats(url):
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=get_clean_env()
         )
         stdout, stderr = await proc.communicate()
         
@@ -211,7 +212,8 @@ async def select_and_download(url, download_path, video_id):
         
         filename_proc = await asyncio.create_subprocess_exec(
             *fname_cmd,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=get_clean_env()
         )
         fname_out, fname_err = await filename_proc.communicate()
         
@@ -227,7 +229,7 @@ async def select_and_download(url, download_path, video_id):
              # This is tricky. Let's just return the path it *likely* ends up at.
              final_filename = os.path.splitext(final_filename)[0] + ".opus"
 
-        process = await asyncio.create_subprocess_exec(*cmd)
+        process = await asyncio.create_subprocess_exec(*cmd, env=get_clean_env())
         await process.wait()
         
         if process.returncode == 0:

@@ -19,7 +19,7 @@ from src.config import ConfigManager
 from src.database import DatabaseManager
 from src.downloader import select_and_download
 from src.player import play_stream, play_local_file
-from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, seconds_to_readable, download_video, check_dependencies, install_ytdlp
+from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, seconds_to_readable, download_video, check_dependencies, install_ytdlp, get_clean_env
 from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer, show_stats_ui, Group, Align
 from src.logger import setup_logger, get_logger
 from datetime import datetime
@@ -218,7 +218,8 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
         proc = await asyncio.create_subprocess_exec(
             *ytdlp_cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL
+            stderr=asyncio.subprocess.DEVNULL,
+            env=get_clean_env()
         )
         stdout, _ = await proc.communicate()
         if stdout:
@@ -263,7 +264,8 @@ async def resolve_rss_url_async(url: str) -> Tuple[str, Optional[str]]:
         proc = await asyncio.create_subprocess_exec(
             *ytdlp_cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=get_clean_env()
         )
         stdout, _ = await proc.communicate()
         if proc.returncode == 0 and stdout:
