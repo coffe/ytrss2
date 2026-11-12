@@ -100,11 +100,15 @@ async def download_video(url, output_dir, video_id):
     
     # Template: Title [id].ext
     output_template = os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s")
+
+    from src.config import ConfigManager
+    cfg = ConfigManager(os.path.expanduser("~/.config/ytrss/ytrss.conf"))
+    base_cmd = get_ytdlp_base_cmd(cfg.get_str('General', 'cookie_browser'))
     
     # Get filename first (simulation)
     try:
         proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", "--get-filename", "-o", output_template, url,
+            *base_cmd, "--get-filename", "-o", output_template, url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=get_clean_env()
@@ -119,7 +123,7 @@ async def download_video(url, output_dir, video_id):
         # Download
         console.print(f"Downloading to: {filename}", style="blue")
         proc_dl = await asyncio.create_subprocess_exec(
-            "yt-dlp", "-o", output_template, url,
+            *base_cmd, "-o", output_template, url,
             stdout=asyncio.subprocess.PIPE,  # Capture output to avoid cluttering UI too much
             stderr=asyncio.subprocess.PIPE,
             env=get_clean_env()
