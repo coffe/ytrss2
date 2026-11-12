@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import shutil
+import tempfile
 from rich.console import Console
 from src.ui import ui_select, Choice
 from src.utils import clean_title, get_clean_env
@@ -166,7 +167,7 @@ async def select_and_download(url, download_path, video_id):
     
     from src.utils import get_ytdlp_base_cmd
     cmd = get_ytdlp_base_cmd(cookie_browser)
-    cmd.extend(["--force-overwrites", "--embed-metadata", "--embed-thumbnail"])
+    cmd.extend(["--embed-metadata", "--embed-thumbnail"])
     
     if selection["type"] == "audio":
         console.print("Downloading Audio...", style="blue")
@@ -201,48 +202,25 @@ async def select_and_download(url, download_path, video_id):
     # Execute
     # We allow stdout to pass through so user sees progress bar from yt-dlp
     try:
-        # Get filename first for database saving
-        logger.debug("Resolving filename...")
-        
-        # Need to include cookies here too for filename resolution if it requires auth
-        fname_cmd = ["yt-dlp", "--get-filename", "-o", output_template]
-        if cookie_browser and cookie_browser.lower() != "none":
-            fname_cmd.extend(["--cookies-from-browser", cookie_browser])
-        fname_cmd.append(url)
-        
-        filename_proc = await asyncio.create_subprocess_exec(
-            *fname_cmd,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            env=get_clean_env()
-        )
-        fname_out, fname_err = await filename_proc.communicate()
-        
-        if filename_proc.returncode != 0:
-             logger.error(f"Filename resolution failed: {fname_err.decode()}")
-             console.print("Could not resolve filename.", style="red")
-             return None
-
-        final_filename = fname_out.decode().strip()
-        # If audio, extension might change to .opus, but let's trust get-filename or adjust
-        if selection["type"] == "audio":
-             # yt-dlp --get-filename might return .webm or .m4a before conversion
-             # This is tricky. Let's just return the path it *likely* ends up at.
-             final_filename = os.path.splitext(final_filename)[0] + ".opus"
+        # yt-dlp writes the final path (after merge/convert) to this file; stdout stays on the terminal for progress
+        fd, path_file = tempfile.mkstemp(suffix=".path")
+        os.close(fd)
+        cmd[1:1] = ["--print-to-file", "after_move:filepath", path_file]
 
         process = await asyncio.create_subprocess_exec(*cmd, env=get_clean_env())
         await process.wait()
         
-        if process.returncode == 0:
-            # Verify file exists (sometimes extensions differ)
-            if os.path.exists(final_filename):
-                return final_filename
-            else:
-                # Try finding it if extension differs
-                base = os.path.splitext(final_filename)[0]
-                for ext in [".mp4", ".mkv", ".opus", ".webm", ".m4a"]:
-                    if os.path.exists(base + ext):
-                        return base + ext
-            return final_filename
+        try:
+            with open(path_file) as f:
+                lines = f.read().strip().splitlines()
+        finally:
+            os.remove(path_file)
+
+        if process.returncode == 0 and lines:
+            return lines[-1]
+        elif process.returncode == 0:
+            logger.error("Download succeeded but yt-dlp reported no file path.")
+            return None
         else:
             console.print("Download failed.", style="red")
             logger.error("Download process exited with error.")
