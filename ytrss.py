@@ -23,6 +23,7 @@ from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_pa
 from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer, show_stats_ui, Group, Align
 from src.logger import setup_logger, get_logger
 from datetime import datetime
+from urllib.parse import urlparse
 
 # Reduce Esc key delay (prevents lag when pressing Esc)
 os.environ.setdefault('ESCDELAY', '25')
@@ -274,7 +275,8 @@ async def resolve_rss_url_async(url: str) -> Tuple[str, Optional[str]]:
     Uses yt-dlp to find the underlying channel ID if necessary.
     Returns a tuple of (rss_url, channel_title).
     """
-    if "xml" in url or "feed" in url: return url, None
+    _path = urlparse(url).path
+    if "/feeds/videos.xml" in _path or _path.endswith(".xml"): return url, None
     console.print(f"Resolving channel info for: {url} ...", style="dim")
     try:
         from src.utils import get_ytdlp_base_cmd
@@ -499,7 +501,7 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
             safe_title = clean_title(v['title'])
             
             # Channel truncation (16 chars for better fit)
-            channel_name = v['channel'][:16]
+            channel_name = (v.get('channel') or '?')[:16]
             
             # Grid Layout: [Status] Date | Dur | Shorts | DL | Channel | Title
             label = f"{seen_mark} {dt} │ {duration:>7} │ {shorts_mark} │ {dl_mark} │ {channel_name:<16} │ {safe_title}"
