@@ -1,5 +1,5 @@
-feedparser
-aiohttp
-InquirerPy
-rich
-pyperclip
+feedparser==6.0.14
+aiohttp==3.14.5
+InquirerPy==0.3.4
+rich==15.0.0
+pyperclip==1.11.0

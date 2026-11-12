@@ -15,7 +15,7 @@ echo "🚀 Starting build process for YTRSS 2.0..."
 # Fresh Start: Clean up everything
 echo "🧹 Cleaning up old builds and environment..."
 rm -rf "$DIST_DIR" "$BUILD_DIR" "$VENV_DIR" "$BIN_DIR"
-# Also clean spec file to ensure fresh config if arguments change
+# ytrss.spec is regenerated from the pyinstaller arguments below (not tracked)
 rm -f ytrss.spec
 
 # Create Virtual Environment
@@ -27,12 +27,10 @@ source "$VENV_DIR/bin/activate"
 
 # Install dependencies
 echo "📦 Installing dependencies..."
-# Upgrade pip quietly
-pip install --upgrade pip --quiet
 # Install requirements quietly
 pip install -r requirements.txt --quiet
 # Ensure PyInstaller is installed
-pip install pyinstaller --quiet
+pip install pyinstaller==6.22.3 --quiet
 
 # Build
 echo "🔨 Compiling binary with PyInstaller..."
