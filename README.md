@@ -2,7 +2,7 @@
 
 **The minimalist, distraction-free YouTube RSS client for your terminal.**
 
-YTRSS 2.0 allows you to browse, organize, and watch your YouTube subscriptions without ever opening the YouTube homepage. No algorithms, no ads, no distractions—just the content you subscribed to.
+ytRss 2.0 allows you to browse, organize, and watch your YouTube subscriptions without ever opening the YouTube homepage. No algorithms, no ads, no distractions—just the content you subscribed to.
 
 > Hosted in the `quicktube2` repository.
 
@@ -63,14 +63,14 @@ Run tests: `python3 -m unittest discover tests`
 | **`M`** | System | Mark all visible videos as seen |
 | **`Q`** | System | Quit |
 
-> **Note:** YTRSS uses a fuzzy-search interface. You can type at any time to filter the list!
+> **Note:** ytRss uses a fuzzy-search interface. You can type at any time to filter the list!
 
 ## ✨ Seasonal Themes
-YTRSS 2.0 includes built-in seasonal themes to brighten up your terminal!
+ytRss 2.0 includes built-in seasonal themes to brighten up your terminal!
 *   **🎄 Christmas Edition:** Active Dec 20th - 26th. Features a festive red/green design with holiday icons.
 *   **🎆 New Year's Stardust:** Active Dec 30th - Jan 2nd. A glittering gold and white theme to ring in the new year.
 
-![YTRSS New Year Theme](images/newyear.png)
+![ytRss New Year Theme](images/newyear.png)
 
 **Note:** The New Year's theme is currently active! If you prefer the standard look, you can easily toggle themes off in the **Settings** menu.
 
