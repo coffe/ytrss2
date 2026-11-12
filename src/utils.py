@@ -111,7 +111,7 @@ async def download_video(url, output_dir, video_id):
     # Get filename first (simulation)
     try:
         proc = await asyncio.create_subprocess_exec(
-            *base_cmd, "--get-filename", "-o", output_template, url,
+            *base_cmd, "--get-filename", "-o", output_template, "--", url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=get_clean_env()
@@ -126,7 +126,7 @@ async def download_video(url, output_dir, video_id):
         # Download
         console.print(f"Downloading to: {filename}", style="blue")
         proc_dl = await asyncio.create_subprocess_exec(
-            *base_cmd, "-o", output_template, url,
+            *base_cmd, "-o", output_template, "--", url,
             stdout=asyncio.subprocess.PIPE,  # Capture output to avoid cluttering UI too much
             stderr=asyncio.subprocess.PIPE,
             env=get_clean_env()

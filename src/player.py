@@ -45,6 +45,11 @@ def play_stream(url, audio_only=False, preferred_player=None):
     mode_text = "Audio Only" if audio_only else "Video"
     console.print(f"Starting {player} ({mode_text})...", style="blue")
 
+    if not (url.startswith(("http://", "https://")) or os.path.exists(url)):
+        console.print(f"Refusing to play non-URL: {url}", style="red")
+        logger.error(f"Refusing to play non-URL: {url}")
+        return False
+
     cmd = [player]
 
     # Check if player name contains "mpv" (handles 'mpv' or '/usr/bin/mpv')

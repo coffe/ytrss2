@@ -30,8 +30,7 @@ async def get_video_formats(url):
     try:
         from src.utils import get_ytdlp_base_cmd
         cmd = get_ytdlp_base_cmd(cookie_browser)
-        cmd.append("-J")
-        cmd.append(url)
+        cmd.extend(["-J", "--", url])
         
         logger.debug(f"Fetching formats: {' '.join(cmd)}")
         
@@ -192,7 +191,7 @@ async def select_and_download(url, download_path, video_id):
             
         cmd.extend(["-o", output_template])
 
-    cmd.append(url)
+    cmd.extend(["--", url])
     
     # Log command
     logger.info(f"Download command: {' '.join(cmd)}")

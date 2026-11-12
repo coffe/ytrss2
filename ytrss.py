@@ -229,7 +229,7 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
     try:
         cookie_browser = cfg.get_str('General', 'cookie_browser')
         ytdlp_cmd = get_ytdlp_base_cmd(cookie_browser)
-        ytdlp_cmd.extend(["--get-duration", video_url])
+        ytdlp_cmd.extend(["--get-duration", "--", video_url])
         
         proc = await asyncio.create_subprocess_exec(
             *ytdlp_cmd,
@@ -275,7 +275,7 @@ async def resolve_rss_url_async(url: str) -> Tuple[str, Optional[str]]:
     try:
         cookie_browser = cfg.get_str('General', 'cookie_browser')
         ytdlp_cmd = get_ytdlp_base_cmd(cookie_browser)
-        ytdlp_cmd.extend(["--dump-json", "--flat-playlist", "--playlist-items", "1", url])
+        ytdlp_cmd.extend(["--dump-json", "--flat-playlist", "--playlist-items", "1", "--", url])
         
         proc = await asyncio.create_subprocess_exec(
             *ytdlp_cmd,
