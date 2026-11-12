@@ -324,13 +324,14 @@ async def add_feed_to_opml_async(url: str) -> None:
             tree = ET.parse(OPML_FILE)
             root = tree.getroot()
             body = root.find('body')
+            if body is None: body = ET.SubElement(root, 'body')
         else:
             root = ET.Element('opml', version="1.0")
             ET.SubElement(root, 'head')
             body = ET.SubElement(root, 'body')
             tree = ET.ElementTree(root)
             
-        for outline in body.findall('outline'):
+        for outline in root.iter('outline'):
             if outline.get('xmlUrl') == url:
                 console.print(f"Channel already exists: {outline.get('title')}", style="yellow")
                 return
@@ -346,10 +347,15 @@ async def add_feed_to_opml_async(url: str) -> None:
 async def remove_channel_ui() -> None:
     """Displays an interactive UI to remove a channel from the OPML file."""
     if not os.path.exists(OPML_FILE): return
-    tree = ET.parse(OPML_FILE)
+    try:
+        tree = ET.parse(OPML_FILE)
+    except ET.ParseError as e:
+        console.print(f"Could not read OPML file: {e}", style="red")
+        logger.error(f"Malformed OPML: {e}")
+        return
     root = tree.getroot()
-    body = root.find('body')
-    outlines = body.findall('outline')
+    parents = {c: p for p in root.iter() for c in p}
+    outlines = list(root.iter('outline'))
     
     choices = []
     for i, node in enumerate(outlines):
@@ -365,7 +371,7 @@ async def remove_channel_ui() -> None:
         return
     
     if idx != -1:
-        body.remove(outlines[idx])
+        parents[outlines[idx]].remove(outlines[idx])
         tree.write(OPML_FILE, encoding='UTF-8', xml_declaration=True)
         console.print("Channel removed.", style="green")
 
