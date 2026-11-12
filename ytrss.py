@@ -155,6 +155,14 @@ def get_all_playlists() -> List[Dict[str, Any]]:
     rows = db.fetchall("SELECT name, is_system_list FROM playlists ORDER BY is_system_list DESC, name ASC")
     return [{"name": r['name'], "is_system": bool(r['is_system_list'])} for r in rows]
 
+def new_year_target(now: datetime) -> datetime:
+    """Jan 1 of the next year."""
+    return datetime(now.year + 1, 1, 1)
+
+def review_year(now: datetime) -> int:
+    """Year shown in Year in Review: last year during January, else this year."""
+    return now.year - 1 if now.month == 1 else now.year
+
 def create_playlist(name: str) -> bool:
     """Creates a new user playlist."""
     try:
@@ -869,9 +877,9 @@ async def main_async() -> None:
                 )
             elif is_newyear:
                 # Countdown Logic
-                target = datetime(2026, 1, 1, 0, 0, 0)
                 now_dt = datetime.now()
-                if now_dt.year >= 2026:
+                target = new_year_target(now_dt)
+                if now_dt.month == 1:
                      countdown_str = "Happy New Year!"
                 else:
                     diff = target - now_dt
@@ -891,7 +899,7 @@ async def main_async() -> None:
                     f"[grey50]•[/grey50] [bold white]Saved:[/bold white] {val_style}{wl_count}[/] [grey50]•[/grey50]  "
                     f"[grey50]•[/grey50] [bold white]Shorts:[/bold white] {val_style}{shorts_status}[/] [grey50]•[/grey50]"
                 )
-                countdown_line = f"[bold gold1]⏳ 2026 in: {countdown_str}[/bold gold1]"
+                countdown_line = f"[bold gold1]⏳ {target.year} in: {countdown_str}[/bold gold1]"
                 
                 # Use Group and Align to center everything robustly
                 
@@ -1024,8 +1032,8 @@ async def main_async() -> None:
                     
                     if result == "back":
                         break
-                    elif result == "year_2025":
-                        current_year = "2025"
+                    elif result.startswith("year_"):
+                        current_year = str(review_year(datetime.now()))
             elif selection == "update_tools":
                 install_ytdlp()
                 await asyncio.sleep(2.0)
