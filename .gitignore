@@ -58,3 +58,5 @@ ideer.md
 
 # Images
 *.png
+# Build output (built by build.sh)
+bin/
