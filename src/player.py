@@ -111,7 +111,7 @@ def play_stream(url, audio_only=False, preferred_player=None):
             logger.error(f"Player exited with error code {result.returncode}")
             console.print(f"Player exited with error code {result.returncode}. Try changing cookie settings if 403 occurs.", style="yellow")
             
-        return True
+        return result.returncode == 0
     except Exception as e:
         console.print(f"Error launching player: {e}", style="red")
         logger.error(f"Exception launching player: {e}")
@@ -128,8 +128,7 @@ def play_local_file(file_path, preferred_player=None):
     if preferred_player and preferred_player.lower() != "auto":
         if shutil.which(preferred_player):
             try:
-                subprocess.run([preferred_player, file_path], env=get_clean_env())
-                return True
+                return subprocess.run([preferred_player, file_path], env=get_clean_env()).returncode == 0
             except Exception as e:
                 logger.error(f"Failed to run preferred player {preferred_player}: {e}")
 
@@ -149,8 +148,7 @@ def play_local_file(file_path, preferred_player=None):
         if player:
             cmd = [player, file_path]
             logger.info(f"Playing local file: {' '.join(cmd)}")
-            subprocess.run(cmd, env=get_clean_env())
-            return True
+            return subprocess.run(cmd, env=get_clean_env()).returncode == 0
         
         # 3. Fallback to xdg-open on Linux
         if shutil.which("xdg-open"):
