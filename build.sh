@@ -20,7 +20,13 @@ rm -f ytrss.spec
 
 # Create Virtual Environment
 echo "🌱 Creating fresh virtual environment..."
-python3 -m venv "$VENV_DIR"
+# PyInstaller needs libpython*.so; Debian's python3 lacks it unless libpython3.x is installed,
+# so prefer uv's managed Python (ships the shared lib) when uv is available.
+if command -v uv >/dev/null; then
+    uv venv --seed --managed-python --python 3.13 "$VENV_DIR"
+else
+    python3 -m venv "$VENV_DIR"
+fi
 
 # Activate venv
 source "$VENV_DIR/bin/activate"
