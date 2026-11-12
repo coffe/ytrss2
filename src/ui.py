@@ -149,14 +149,14 @@ async def show_stats_ui(stats, duration_to_secs_func, secs_to_readable_func, yea
         
         # Only show Year Review option if we are in normal mode
         if not year:
-             choices.insert(1, Choice("year_review", "   📅  Year in Review (2025)"))
+             choices.insert(1, Choice("year_review", "   📅  Year in Review"))
 
         selection = await ui_select(message="Options:", choices=choices)
         
         if selection == "back" or selection is None:
             return "back"
         elif selection == "year_review":
-            return "year_2025" # Signal caller to switch mode
+            return "year_review" # Signal caller to switch mode
         elif selection == "copy":
             if year:
                  # Fireworks!
