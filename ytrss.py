@@ -178,6 +178,14 @@ def remove_from_playlist(playlist_name: str, video_id: str) -> bool:
               (video_id, playlist_name))
     return True
 
+async def _communicate_or_kill(proc, timeout: float = 30):
+    """proc.communicate() with a timeout; kills the process and re-raises on timeout."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise
+
 async def get_video_duration(video_url: str, video_id: str) -> str:
     """
     Fetches video duration using HTML scraping (fast) or yt-dlp (reliable).
@@ -195,7 +203,7 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
     # Try light-weight HTML scrap first
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(video_url, headers={"User-Agent": USER_AGENT}, timeout=5) as resp:
+            async with session.get(video_url, headers={"User-Agent": USER_AGENT}, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
                     html = await resp.text()
                     # Look for <meta itemprop="duration" content="PT3M45S">
@@ -229,7 +237,7 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
             stderr=asyncio.subprocess.DEVNULL,
             env=get_clean_env()
         )
-        stdout, _ = await proc.communicate()
+        stdout, _ = await _communicate_or_kill(proc)
         if stdout:
             duration = stdout.decode().strip()
             if ':' in duration or duration.isdigit():
@@ -275,7 +283,7 @@ async def resolve_rss_url_async(url: str) -> Tuple[str, Optional[str]]:
             stderr=asyncio.subprocess.PIPE,
             env=get_clean_env()
         )
-        stdout, _ = await proc.communicate()
+        stdout, _ = await _communicate_or_kill(proc)
         if proc.returncode == 0 and stdout:
             data = json.loads(stdout.decode().splitlines()[0])
             channel_id = data.get("playlist_channel_id") or data.get("channel_id") or data.get("playlist_id")
@@ -409,10 +417,12 @@ def show_help():
     console.print(Panel(help_text, title="Help", border_style="green"))
     input("Press Enter to continue...")
 
+_feed_sem = asyncio.Semaphore(10)  # limit concurrent feed requests
+
 async def fetch_feed(session: aiohttp.ClientSession, url: str) -> Optional[str]:
     """Fetches raw XML content from a URL asynchronously."""
     try:
-        async with session.get(url, headers={"User-Agent": USER_AGENT}) as response:
+        async with _feed_sem, session.get(url, headers={"User-Agent": USER_AGENT}) as response:
             if response.status == 200: return await response.text()
             else:
                 logger.warning(f"Fetch failed for {url}: Status {response.status}")
@@ -791,7 +801,7 @@ async def main_async() -> None:
         all_videos_flat = []
 
         with console.status("[bold green]Fetching feeds...") as status:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 tasks = [fetch_and_parse_feed(session, url) for url in feeds]
                 results = await asyncio.gather(*tasks)
 
