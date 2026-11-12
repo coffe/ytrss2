@@ -397,13 +397,13 @@ def show_help():
     • [bold]Type[/bold]:   Search/Filter content automatically
     • [bold]Enter[/bold]:  Select item or confirm action
 
-    [bold cyan]Main Menu Shortcuts[/bold cyan]
-    • [bold]r[/bold]: Refresh feeds
-    • [bold]a[/bold]: Add new channel (RSS URL)
-    • [bold]m[/bold]: Mark all displayed videos as seen
-    • [bold]s[/bold]: Toggle Shorts visibility
-    • [bold],[/bold]: Open Settings
-    • [bold]q[/bold]: Quit
+    [bold cyan]Main Menu[/bold cyan]
+    Items are chosen with Enter; the letters in the labels (R, M, Q, ...) are
+    only hints. Type the label text to filter, e.g. "refresh" or "quit".
+    • [bold]Refresh feeds[/bold], [bold]Add channel[/bold], [bold]Mark all as seen[/bold]
+    • [bold]Settings[/bold]: toggle Shorts visibility and more
+    • [bold]Quit[/bold]
+    • [bold]Esc[/bold]: Go back / cancel
 
     [bold cyan]Video Actions[/bold cyan]
     Select a video to:
