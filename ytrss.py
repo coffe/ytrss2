@@ -641,14 +641,14 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
             await asyncio.sleep(1.0)
 
         elif action == "play_stream":
-            mark_as_seen(video['id'], video['title'])
-            video['is_seen'] = True
-            play_stream(video['link'], audio_only=False, preferred_player=PLAYER_CMD)
+            if play_stream(video['link'], audio_only=False, preferred_player=PLAYER_CMD):
+                mark_as_seen(video['id'], video['title'])
+                video['is_seen'] = True
         
         elif action == "play_audio":
-            mark_as_seen(video['id'], video['title'])
-            video['is_seen'] = True
-            play_stream(video['link'], audio_only=True, preferred_player=PLAYER_CMD)
+            if play_stream(video['link'], audio_only=True, preferred_player=PLAYER_CMD):
+                mark_as_seen(video['id'], video['title'])
+                video['is_seen'] = True
         
         elif action == "watch_later":
             if add_to_playlist("Watch Later", video):
