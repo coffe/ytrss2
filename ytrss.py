@@ -166,17 +166,22 @@ def review_year(now: datetime) -> int:
 def create_playlist(name: str) -> bool:
     """Creates a new user playlist."""
     try:
-        db.execute("INSERT INTO playlists (name, is_system_list) VALUES (?, 0)", (name,))
-        return True
-    except:
+        # DatabaseManager.execute returns None on sqlite errors (e.g. duplicate name)
+        return db.execute("INSERT INTO playlists (name, is_system_list) VALUES (?, 0)", (name,)) is not None
+    except Exception as e:
+        logger.error(f"Failed to create playlist '{name}': {e}")
         return False
 
 def remove_from_playlist(playlist_name: str, video_id: str) -> bool:
     """Removes a video from a specific playlist."""
-    db.execute('''DELETE FROM playlist_items 
-                 WHERE video_id = ? AND playlist_id = (SELECT id FROM playlists WHERE name = ?)''',
-              (video_id, playlist_name))
-    return True
+    try:
+        cur = db.execute('''DELETE FROM playlist_items 
+                     WHERE video_id = ? AND playlist_id = (SELECT id FROM playlists WHERE name = ?)''',
+                  (video_id, playlist_name))
+        return bool(cur and cur.rowcount > 0)
+    except Exception as e:
+        logger.error(f"Failed to remove {video_id} from '{playlist_name}': {e}")
+        return False
 
 async def _communicate_or_kill(proc, timeout: float = 30):
     """proc.communicate() with a timeout; kills the process and re-raises on timeout."""
