@@ -1,5 +1,4 @@
 import platform
-import subprocess
 import shutil
 import os
 import unicodedata
@@ -20,7 +19,7 @@ def clipboard_copy(text):
         console.print(f"Clipboard error: {e}", style="red")
 
 def clear_screen():
-    os.system('cls' if platform.system() == 'Windows' else 'clear')
+    print("\033[2J\033[H", end="", flush=True)
 
 def clean_title(text):
     """Removes emojis and other characters that cause terminal rendering glitches."""
@@ -41,7 +40,7 @@ def clean_title(text):
 def get_resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
-    except:
+    except AttributeError:
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
@@ -75,7 +74,7 @@ def duration_to_seconds(duration_str):
             return int(parts[0]) * 60 + int(parts[1])
         elif len(parts) == 1: # SS
             return int(parts[0])
-    except: return 0
+    except (ValueError, AttributeError): return 0
     return 0
 
 def is_short(duration_str):
