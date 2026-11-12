@@ -85,7 +85,7 @@ A configuration file is automatically created at `~/.config/ytrss/ytrss.conf`. Y
 *   `multi_playlists`: **(Experimental)** Enable support for multiple custom playlists.
 
 ## 📄 License
-MIT
+GPL-3.0 – see [LICENSE](LICENSE).
 
 ---
 

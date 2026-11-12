@@ -60,3 +60,5 @@ ideer.md
 *.png
 # Build output (built by build.sh)
 bin/
+ytrss
+ytrss.exe
