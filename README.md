@@ -49,6 +49,8 @@ pip install -r requirements.txt
 python ytrss.py
 ```
 
+
+Run tests: `python3 -m unittest discover tests`
 ## 🎮 Controls
 
 | Key | Context | Action |
