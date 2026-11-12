@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 import feedparser
-import subprocess
 import sys
 import os
 import shutil
-import sqlite3
 import asyncio
 import aiohttp
 import webbrowser
-import unicodedata
 import json
-import platform
 import re
 import xml.etree.ElementTree as ET
-import configparser
 from typing import List, Dict, Optional, Set, Any, Tuple
 from src.config import ConfigManager
 from src.database import DatabaseManager
 from src.downloader import select_and_download
 from src.player import play_stream, play_local_file
-from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, is_short, seconds_to_readable, download_video, check_dependencies, install_ytdlp, get_clean_env
-from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer, show_stats_ui, Group, Align
-from src.logger import setup_logger, get_logger
+from src.utils import clipboard_copy, clear_screen, clean_title, duration_to_seconds, is_short, get_ytdlp_base_cmd, seconds_to_readable, download_video, check_dependencies, install_ytdlp, get_clean_env
+from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, show_stats_ui, Group, Align
+from src.logger import setup_logger
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -233,7 +228,6 @@ async def get_video_duration(video_url: str, video_id: str) -> str:
     # Fallback to yt-dlp
     try:
         cookie_browser = cfg.get_str('General', 'cookie_browser')
-        from src.utils import get_ytdlp_base_cmd
         ytdlp_cmd = get_ytdlp_base_cmd(cookie_browser)
         ytdlp_cmd.extend(["--get-duration", video_url])
         
@@ -279,7 +273,6 @@ async def resolve_rss_url_async(url: str) -> Tuple[str, Optional[str]]:
     if "/feeds/videos.xml" in _path or _path.endswith(".xml"): return url, None
     console.print(f"Resolving channel info for: {url} ...", style="dim")
     try:
-        from src.utils import get_ytdlp_base_cmd
         cookie_browser = cfg.get_str('General', 'cookie_browser')
         ytdlp_cmd = get_ytdlp_base_cmd(cookie_browser)
         ytdlp_cmd.extend(["--dump-json", "--flat-playlist", "--playlist-items", "1", url])
@@ -385,10 +378,9 @@ async def remove_channel_ui() -> None:
     if idx is None or idx == -1:
         return
     
-    if idx != -1:
-        parents[outlines[idx]].remove(outlines[idx])
-        tree.write(OPML_FILE, encoding='UTF-8', xml_declaration=True)
-        console.print("Channel removed.", style="green")
+    parents[outlines[idx]].remove(outlines[idx])
+    tree.write(OPML_FILE, encoding='UTF-8', xml_declaration=True)
+    console.print("Channel removed.", style="green")
 
 def show_help():
     help_text = """
@@ -456,7 +448,6 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
         videos (list): List of video dictionaries to display.
         playlist_name (str, optional): Name of the current playlist (enables specific actions like remove).
     """
-    global SHOW_SHORTS
 
     if not SHOW_SHORTS:
         videos = [v for v in videos if not v.get('is_shorts')]
@@ -602,9 +593,7 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
         if not video.get('download_path'):
             action_choices.append(Choice("download", name="💾  Download..."))
 
-        action_choices.append(Choice("watch_later", name="CLOCK  Add to Watch Later")) # Using text CLOCK placeholder if emoji fails, but standardizing on emoji in UI usually works. Let's stick to standard chars or consistent emoji.
-        # Actually, let's just use the previous style.
-        action_choices[-1] = Choice("watch_later", name="⏱️  Add to Watch Later")
+        action_choices.append(Choice("watch_later", name="⏱️  Add to Watch Later"))
 
         
         if cfg.get_bool('General', 'multi_playlists'):
@@ -767,7 +756,7 @@ async def main_async() -> None:
     Main application loop.
     Handles startup checks, feed fetching, dashboard rendering, and user input.
     """
-    global duration_cache, SHOW_SHORTS
+    global duration_cache
     db.connect()
     duration_cache = get_cached_metadata()
     
@@ -801,7 +790,7 @@ async def main_async() -> None:
         all_videos_by_channel = {}
         all_videos_flat = []
 
-        with console.status("[bold green]Fetching feeds...") as status:
+        with console.status("[bold green]Fetching feeds..."):
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
                 tasks = [fetch_and_parse_feed(session, url) for url in feeds]
                 results = await asyncio.gather(*tasks)
@@ -847,7 +836,6 @@ async def main_async() -> None:
         all_videos_flat.sort(key=lambda x: x['published'], reverse=True)
 
         should_refresh = False
-        last_selection = None
 
         while not should_refresh:
             clear_screen()
@@ -1083,7 +1071,7 @@ async def main_async() -> None:
                 for v in unseen: v['is_seen'] = True
             elif selection == "ALL":
                 await show_video_menu(all_videos_flat[:60]) # Limit to 60 for perf
-            elif selection == "WL" or selection == "PL:Watch Later":
+            elif selection == "PL:Watch Later":
                 wl_videos = get_playlist_videos("Watch Later")
                 current_seen = get_seen_videos()
                 for v in wl_videos: v['is_seen'] = v['id'] in current_seen

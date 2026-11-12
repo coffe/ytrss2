@@ -69,7 +69,6 @@ async def get_video_formats(url):
             # Determine quality metrics to pick the "best" representation for this height
             # (e.g. prioritize higher bitrate/fps for the label)
             fps = f.get("fps") or 0
-            filesize = f.get("filesize") or f.get("filesize_approx") or 0
             tbr = f.get("tbr") or 0
             
             if height not in unique_resolutions:
@@ -77,7 +76,6 @@ async def get_video_formats(url):
             else:
                 existing = unique_resolutions[height]
                 e_fps = existing.get("fps") or 0
-                e_size = existing.get("filesize") or existing.get("filesize_approx") or 0
                 e_tbr = existing.get("tbr") or 0
                 
                 # Logic: Higher FPS > Higher Bitrate/Size

@@ -73,7 +73,6 @@ async def ui_text(message, **kwargs):
 async def show_fireworks(console):
     from rich.align import Align
     from rich.text import Text
-    width = console.size.width
     height = console.size.height
     
     # Simple flashing animation
@@ -81,7 +80,6 @@ async def show_fireworks(console):
     for _ in range(6):
         console.clear()
         c1 = random.choice(colors)
-        c2 = random.choice(colors)
         text = Text("✨  HAPPY NEW YEAR!  ✨", style=f"bold {c1}")
         console.print(Align.center(text, vertical="middle"), height=height)
         await asyncio.sleep(0.2)
