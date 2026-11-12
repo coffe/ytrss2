@@ -62,6 +62,8 @@ def play_stream(url, audio_only=False, preferred_player=None):
         if audio_only:
             cmd.append("--no-video")
             cmd.append("--ytdl-format=bestaudio/best")
+        else:
+            cmd.append("--ytdl-format=bestvideo[height<=?1080]+bestaudio/best")
             
         # Handle Cookies / Client spoofing
         raw_options = []
