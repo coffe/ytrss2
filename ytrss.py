@@ -19,7 +19,7 @@ from src.config import ConfigManager
 from src.database import DatabaseManager
 from src.downloader import select_and_download
 from src.player import play_stream, play_local_file
-from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, seconds_to_readable, download_video, check_dependencies, install_ytdlp, get_clean_env
+from src.utils import clipboard_copy, clear_screen, clean_title, get_resource_path, duration_to_seconds, is_short, seconds_to_readable, download_video, check_dependencies, install_ytdlp, get_clean_env
 from src.ui import ui_select, ui_filter, ui_text, Choice, Separator, Console, Panel, Style, inquirer, show_stats_ui, Group, Align
 from src.logger import setup_logger, get_logger
 from datetime import datetime
@@ -472,13 +472,7 @@ async def show_video_menu(videos: List[Dict[str, Any]], playlist_name: Optional[
             async with sem:
                 dur = await get_video_duration(v['link'], v['id'])
                 v['duration'] = dur
-                if dur != "??:??":
-                    try:
-                        parts = dur.split(':')
-                        if len(parts) == 2:
-                            m, s = int(parts[0]), int(parts[1])
-                            if m == 0 or (m == 1 and s == 0): v['is_shorts'] = True
-                    except: pass
+                if is_short(dur): v['is_shorts'] = True
         await asyncio.gather(*(fetch_and_update(v) for v in to_fetch))
         
         if not SHOW_SHORTS:
@@ -840,12 +834,7 @@ async def main_async() -> None:
                         'is_shorts': is_shorts,
                         'duration': duration
                     }
-                    if v['duration'] != "??:??":
-                         try:
-                            parts = v['duration'].split(':')
-                            if len(parts) == 2 and (int(parts[0]) == 0 or (int(parts[0]) == 1 and int(parts[1]) == 0)):
-                                v['is_shorts'] = True
-                         except: pass
+                    if is_short(v['duration']): v['is_shorts'] = True
                     if v['published']:
                         ch_videos.append(v)
                         all_videos_flat.append(v)

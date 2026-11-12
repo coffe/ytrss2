@@ -78,6 +78,10 @@ def duration_to_seconds(duration_str):
     except: return 0
     return 0
 
+def is_short(duration_str):
+    """True for a known duration of 60 s or less (unknown '??:??' or empty is not a short)."""
+    return 0 < duration_to_seconds(duration_str) <= 60
+
 def seconds_to_readable(seconds):
     """Converts seconds to a readable string like '2h 15m' or '45m 10s'."""
     if seconds <= 0: return "0m"
