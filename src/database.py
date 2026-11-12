@@ -1,8 +1,10 @@
 import sqlite3
 from rich.console import Console
+from src.logger import get_logger
 
 # Create a local console for logging errors within this module
 console = Console()
+logger = get_logger()
 
 class DatabaseManager:
     def __init__(self, db_file):
@@ -13,6 +15,7 @@ class DatabaseManager:
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_file)
             self.conn.row_factory = sqlite3.Row
+            self.conn.execute("PRAGMA foreign_keys=ON")
             self._migrate()
     
     def _migrate(self):
@@ -59,6 +62,9 @@ class DatabaseManager:
             except Exception as e:
                 console.print(f"Migration failed: {e}", style="red")
 
+        # One-time cleanup of items orphaned while foreign keys were not enforced
+        c.execute("DELETE FROM playlist_items WHERE playlist_id NOT IN (SELECT id FROM playlists)")
+
         self.conn.commit()
 
     def execute(self, query, params=()):
@@ -68,7 +74,8 @@ class DatabaseManager:
             c.execute(query, params)
             self.conn.commit()
             return c
-        except Exception as e:
+        except sqlite3.Error as e:
+            logger.error(f"DB Error: {e} | query: {query}")
             console.print(f"DB Error: {e}", style="red")
             return None
 
@@ -79,7 +86,8 @@ class DatabaseManager:
             c.executemany(query, params_list)
             self.conn.commit()
             return c
-        except Exception as e:
+        except sqlite3.Error as e:
+            logger.error(f"DB Error: {e} ")
             console.print(f"DB Error: {e}", style="red")
             return None
             
@@ -89,7 +97,8 @@ class DatabaseManager:
             c = self.conn.cursor()
             c.execute(query, params)
             return c.fetchall()
-        except Exception as e:
+        except sqlite3.Error as e:
+            logger.error(f"DB fetchall failed: {e} | query: {query}")
             return []
 
     def fetchone(self, query, params=()):
@@ -98,7 +107,8 @@ class DatabaseManager:
             c = self.conn.cursor()
             c.execute(query, params)
             return c.fetchone()
-        except Exception as e:
+        except sqlite3.Error as e:
+            logger.error(f"DB fetchone failed: {e} | query: {query}")
             return None
 
     def close(self):
