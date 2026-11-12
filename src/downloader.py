@@ -171,6 +171,8 @@ async def select_and_download(url, download_path, video_id):
         cmd.extend([
             "-f", "bestaudio/best",
             "-x", "--audio-format", "opus",
+            # re-download of an existing .opus: its embedded cover breaks the metadata pass (ffmpeg can't mux it); EmbedThumbnail re-adds it
+            "--ppa", "Metadata:-vn",
             "-o", output_template
         ])
     else:
